@@ -1,0 +1,8 @@
+/target
+__pycache__/
+/receipts
+*.key
+*.sqlite3*
+/config/slotline.local.yaml
+/.env
+/.serena/

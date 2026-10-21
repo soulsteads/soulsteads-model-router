@@ -1,0 +1,41 @@
+From 12a963ed0d92db77e45bf1e4baa4b738a2e36dd1 Mon Sep 17 00:00:00 2001
+From: Soulsteads contributors <contributors@example.invalid>
+Date: Mon, 28 Sep 2026 01:15:38 +0000
+Subject: [PATCH] Advertise validated GPT-6 Codex models
+
+---
+ src/__tests__/models.test.ts   | 3 +++
+ src/adapter/openai-to-codex.ts | 3 +++
+ 2 files changed, 6 insertions(+)
+
+diff --git a/src/__tests__/models.test.ts b/src/__tests__/models.test.ts
+index e4e3ba9..47cb087 100644
+--- a/src/__tests__/models.test.ts
++++ b/src/__tests__/models.test.ts
+@@ -4,6 +4,9 @@ import { AVAILABLE_MODELS, canonicalModelLabel, resolveModel } from "../adapter/
+ import { incCounter, observeHistogram, renderMetrics, resetMetrics } from "../server/metrics.js";
+ 
+ test("model list includes current Codex models", () => {
++  assert.ok(AVAILABLE_MODELS.includes("gpt-6-astra"));
++  assert.ok(AVAILABLE_MODELS.includes("gpt-6-sol"));
++  assert.ok(AVAILABLE_MODELS.includes("gpt-6-luna"));
+   assert.ok(AVAILABLE_MODELS.includes("gpt-5.5"));
+   assert.ok(AVAILABLE_MODELS.includes("gpt-5.4"));
+   assert.ok(AVAILABLE_MODELS.includes("gpt-5.3-codex"));
+diff --git a/src/adapter/openai-to-codex.ts b/src/adapter/openai-to-codex.ts
+index a4fe2f9..a77534a 100644
+--- a/src/adapter/openai-to-codex.ts
++++ b/src/adapter/openai-to-codex.ts
+@@ -24,6 +24,9 @@ import type { UserInput, UserImageInput } from "../types/codex.js";
+ const DEFAULT_MODEL = process.env.CODEX_PROXY_DEFAULT_MODEL || "gpt-5.5";
+ 
+ export const AVAILABLE_MODELS = [
++  "gpt-6-astra",
++  "gpt-6-sol",
++  "gpt-6-luna",
+   "gpt-5.5",
+   "gpt-5.4",
+   "gpt-5.4-mini",
+-- 
+2.53.0
+

@@ -1,0 +1,51 @@
+# Minimal managed-routing example. Replace the bind address with this machine's
+# actual Tailnet IPv4 address (100.64.0.0/10); 100.64.0.1 is illustrative only.
+# Slotline currently rejects loopback, LAN, wildcard binds and port 4001.
+bind: 100.64.0.1
+port: 4011
+refresh_seconds: 60
+affinity_lease_seconds: 900
+credentials:
+  - name: example-operator
+    # Must be an absolute path to a private file (0600) containing 24..4096 bytes.
+    # Use file-backed credentials for this walkthrough; see KEYS.md for the
+    # Argon2id verifier store, rotation and revocation used for longer-lived setups.
+    key_file: /absolute/path/to/operator.key
+    aliases: [local-chat]
+    class: interactive
+    requests_per_minute: 120
+    burst: 12
+    max_in_flight: 2
+    operator: true
+routes:
+  - name: local-a
+    kind: local
+    base_url: http://127.0.0.1:8000/v1
+    # Must exactly match the model ID returned by your backend's /v1/models.
+    model: qwen38flash
+    safe_concurrency: 1
+    context_limit: 8192
+    # A descriptive operator-supplied label, not a certification.
+    adapter_version: example-local-v1
+    capabilities: [text]
+    streaming: true
+    enabled: true
+  - name: local-b
+    kind: local
+    base_url: http://127.0.0.1:8001/v1
+    model: qwen38flash
+    safe_concurrency: 1
+    context_limit: 8192
+    adapter_version: example-local-v1
+    capabilities: [text]
+    streaming: true
+    # Enable only after starting and validating a second backend.
+    enabled: false
+aliases:
+  local-chat:
+    context_limit: 8192
+    capabilities: [text]
+    streaming: true
+    routes:
+      - {route: local-a, priority: 10}
+      - {route: local-b, priority: 10}

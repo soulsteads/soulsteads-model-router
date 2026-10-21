@@ -1,0 +1,24 @@
+# Optional external sidecar example, not built by this repository.
+# Set the real upstream address and verify the external binary before use.
+[Unit]
+Description=Private Headroom adapter for Slotline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/sha256sum -c %h/.config/slotline/headroom.sha256
+ExecStart=%h/.local/bin/slotline-headroom-proxy --listen 127.0.0.1:18787 --upstream http://127.0.0.1:8000 --compression-mode off --upstream-connect-timeout 3s --upstream-timeout 180s --max-body-bytes 8388608 --graceful-shutdown-timeout 30s
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=35
+MemoryMax=2G
+TasksMax=64
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+
+[Install]
+WantedBy=default.target

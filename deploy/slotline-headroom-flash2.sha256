@@ -1,0 +1,4 @@
+# Historical sidecar digest, not a downloadable release or a trust root.
+# Generate ~/.config/slotline/headroom.sha256 from your independently verified
+# binary using: sha256sum "$HOME/.local/bin/slotline-headroom-proxy"
+# Historical SHA-256: 385f4b4193f3bb975c4cd92a0d7b9e075714fcbd1dccc03d6c5812384b50bb60

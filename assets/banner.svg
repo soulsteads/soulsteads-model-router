@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="300" viewBox="0 0 1000 300" role="img" aria-labelledby="title desc">
+  <title id="title">Soulsteads Model Router</title>
+  <desc id="desc">One endpoint routes requests to three local inference servers.</desc>
+  <defs>
+    <linearGradient id="background" x2="1" y2="1">
+      <stop stop-color="#101827"/>
+      <stop offset="1" stop-color="#182b3a"/>
+    </linearGradient>
+  </defs>
+  <rect width="1000" height="300" rx="20" fill="url(#background)"/>
+  <g font-family="system-ui, sans-serif">
+    <text x="48" y="66" fill="#73e5c0" font-size="17" font-weight="700" letter-spacing="4">SOULSTEADS</text>
+    <text x="48" y="123" fill="#f0f6fc" font-size="45" font-weight="750">Model Router</text>
+    <text x="48" y="166" fill="#c1d1df" font-size="20">Your local models. One endpoint.</text>
+    <text x="48" y="221" fill="#73e5c0" font-size="17">Blazing Fast. Capacity-aware routing. No BS</text>
+    <g fill="none" stroke="#73e5c0" stroke-width="3">
+      <path d="M654 150H737M737 150V74H832M737 150H832M737 150V226H832"/>
+      <rect x="586" y="119" width="68" height="62" rx="12" fill="#1d3e49"/>
+      <rect x="832" y="49" width="110" height="50" rx="10" fill="#1d3e49"/>
+      <rect x="832" y="125" width="110" height="50" rx="10" fill="#1d3e49"/>
+      <rect x="832" y="201" width="110" height="50" rx="10" fill="#1d3e49"/>
+    </g>
+    <g fill="#f0f6fc" font-size="14" text-anchor="middle">
+      <text x="620" y="155">route</text>
+      <text x="887" y="79">local A</text>
+      <text x="887" y="155">local B</text>
+      <text x="887" y="231">embed</text>
+    </g>
+  </g>
+</svg>

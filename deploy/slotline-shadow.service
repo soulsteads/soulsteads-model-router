@@ -1,0 +1,23 @@
+# Example systemd user unit. Install the binary first; do not copy unchanged
+# over an existing service. %h expands to the service user's home directory.
+[Unit]
+Description=Soulsteads Model Router (Slotline)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=%h/.local/bin/slotline --check-config %h/.config/slotline/config.yaml
+ExecStart=%h/.local/bin/slotline %h/.config/slotline/config.yaml
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+# The verifier store/control socket need a writable private state directory.
+ReadWritePaths=%h/.config/slotline
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_UNIX
+
+[Install]
+WantedBy=default.target
