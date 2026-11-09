@@ -29,7 +29,7 @@ changing the socket contract.
 ## Real HTTP fixture processes
 
 Build the binary first. Set `SLOTLINE_TEST_HOST` to a Tailnet IPv4 address
-actually assigned to your test host; the default `100.64.0.1` is illustrative,
+actually assigned to your test host; the default `100.127.255.254` is illustrative,
 not an address assumed to exist on your network. The gateway's current listener
 restriction applies to fixtures too. Do not change production networking to run
 tests. Use an isolated test host if your machine lacks a Tailnet address.
@@ -40,7 +40,7 @@ are disposable and separate from an installed service.
 
 ```sh
 cargo build --release --locked
-export SLOTLINE_TEST_HOST=100.64.0.1  # replace with your own assigned address
+export SLOTLINE_TEST_HOST=100.127.255.254  # replace with your own assigned address
 export SLOTLINE_TEST_BINARY="$PWD/target/release/slotline"
 PYTHONDONTWRITEBYTECODE=1 python3 tests/mock_validation.py
 PYTHONDONTWRITEBYTECODE=1 python3 tests/key_store_http.py

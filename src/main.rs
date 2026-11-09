@@ -611,4 +611,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(test)]
+mod codex_tests;
+
+#[cfg(test)]
 mod tests;

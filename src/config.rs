@@ -22,6 +22,8 @@ pub struct Config {
     #[serde(default = "default_affinity_lease")]
     pub affinity_lease_seconds: u64,
     #[serde(default)]
+    pub codex: CodexConfig,
+    #[serde(default)]
     pub credentials: Vec<Credential>,
     #[serde(default)]
     pub key_store: Option<String>,
@@ -34,6 +36,19 @@ pub struct Config {
     #[serde(default)]
     pub metadata_matchers: Vec<Matcher>,
 }
+#[derive(Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodexConfig {
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl Default for CodexConfig {
+    fn default() -> Self {
+        Self { enabled: false }
+    }
+}
+
 fn default_refresh() -> u64 {
     60
 }
@@ -290,10 +305,19 @@ pub struct Credential {
     #[serde(default)]
     pub operator: bool,
     #[serde(default)]
+    pub cloud_allowed: bool,
+    #[serde(default)]
     pub agent_affinity: bool,
     #[serde(default)]
     pub expires_at: Option<i64>,
 }
+
+impl Credential {
+    pub(crate) fn can_use_codex(&self, codex: &CodexConfig) -> bool {
+        codex.enabled && self.cloud_allowed
+    }
+}
+
 fn default_rpm() -> u32 {
     60
 }

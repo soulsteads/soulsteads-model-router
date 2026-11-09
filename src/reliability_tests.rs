@@ -193,7 +193,7 @@ fn fixture_with_policy(
         .enumerate()
         .map(|(index, _)| json!({"route":format!("route-{index}"),"priority":index}))
         .collect();
-    let mut config = json!({"bind":"100.64.0.1","port":14022,"credentials":[{
+    let mut config = json!({"bind":"100.127.255.254","port":14022,"credentials":[{
         "name":"fixture","key_file":key,"aliases":["test"],"class":"test","max_in_flight":8,"burst":100
     }],"routes":route_configs,"aliases":{"test":{
         "endpoint":endpoint,"context_limit":2000,"capabilities":if endpoint == "embedding" { json!(["text"]) } else { json!(["text","responses"]) },

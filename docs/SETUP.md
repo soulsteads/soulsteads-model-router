@@ -38,7 +38,7 @@ Set `SLOTLINE_BIND` to an address actually assigned to this machine. The address
 below is illustrative; do not copy it unchanged unless it is yours.
 
 ```sh
-export SLOTLINE_BIND=100.64.0.1
+export SLOTLINE_BIND=100.127.255.254
 ```
 
 This script creates `~/.config/slotline/config.yaml` and `operator.key` by default,
@@ -67,7 +67,7 @@ if key.exists() or policy.exists():
 with key.open('x') as output:
     output.write(secrets.token_urlsafe(32) + '\n')
 text = Path('config/slotline.example.yaml').read_text()
-text = text.replace('bind: 100.64.0.1', f'bind: {address}')
+text = text.replace('bind: 100.127.255.254', f'bind: {address}')
 # JSON-quoted strings are valid YAML and preserve spaces/quotes in the path.
 import json
 text = text.replace('/absolute/path/to/operator.key', json.dumps(str(key.resolve())))
@@ -181,3 +181,7 @@ proof of systemd hardening on every distribution.
 - Use the [key manager](../KEYS.md) for verifier-backed client credentials.
 - Check [compatibility](COMPATIBILITY.md) before adding tools, images, or other endpoints.
 - Read [optional integrations](INTEGRATIONS.md) only if you need a tokenizer or sidecar.
+
+## Synthetic address used in examples
+
+`100.127.255.254` is an intentionally synthetic Tailnet/CGNAT fixture address, not a configured deployment endpoint. Replace it with your own Tailnet IPv4 address when following these examples. Listener validation remains restricted to Tailnet IPv4 addresses.

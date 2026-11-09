@@ -13,7 +13,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get("SLOTLINE_TEST_BINARY", str(ROOT / "target/release/slotline")))
-HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.64.0.1")
+HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.127.255.254")
 PORT = 4013
 
 

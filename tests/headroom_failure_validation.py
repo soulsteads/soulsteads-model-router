@@ -17,7 +17,7 @@ from mock_validation import Backend
 ROOT = Path(__file__).resolve().parents[1]
 SLOTLINE = Path(os.environ.get("SLOTLINE_TEST_BINARY", str(ROOT / "target/release/slotline")))
 HEADROOM = Path(os.environ.get("SLOTLINE_HEADROOM_PROXY", str(Path.home() / ".local/bin/slotline-headroom-proxy")))
-HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.64.0.1")
+HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.127.255.254")
 PORT = 4013
 KEY = "slotline-headroom-failure-fixture-1234567890"
 
