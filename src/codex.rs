@@ -730,6 +730,51 @@ pub(crate) async fn forward(
     runtime: Arc<Runtime>,
     credential: Arc<CredentialState>,
     headers: HeaderMap,
+    request: Value,
+    chat: bool,
+    class_permit: OwnedSemaphorePermit,
+) -> Response {
+    let upstream_errors = runtime.upstream_errors.clone();
+    let response = forward_inner(runtime, credential, headers, request, chat, class_permit).await;
+    // Native inference transport/protocol failures are rendered as 502s.
+    // Do not count local validation, policy, or capacity refusals.
+    if response.status() == StatusCode::BAD_GATEWAY {
+        upstream_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        return response;
+    }
+    let is_sse = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| {
+            value
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .eq_ignore_ascii_case("text/event-stream")
+        });
+    if response.status() != StatusCode::OK || !is_sse {
+        return response;
+    }
+    // A stream can fail after its 200 headers. Observe actual body errors,
+    // not Drop: a client cancelling a stream is not an upstream failure.
+    let (parts, body) = response.into_parts();
+    let mut counted = false;
+    let stream = body.into_data_stream().map(move |item| {
+        if item.is_err() && !counted {
+            upstream_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            counted = true;
+        }
+        item
+    });
+    Response::from_parts(parts, Body::from_stream(stream))
+}
+
+async fn forward_inner(
+    runtime: Arc<Runtime>,
+    credential: Arc<CredentialState>,
+    headers: HeaderMap,
     mut request: Value,
     chat: bool,
     class_permit: OwnedSemaphorePermit,

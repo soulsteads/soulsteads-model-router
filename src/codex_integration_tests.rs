@@ -273,13 +273,23 @@ fn fixture(fake: &Fake, cloud: Option<bool>, route: bool) -> Fixture {
 }
 
 fn fixture_inner(base: &str, cloud: Option<bool>, route: bool, persist: bool) -> Fixture {
+    fixture_with_operator(base, cloud, route, persist, false)
+}
+
+fn fixture_with_operator(
+    base: &str,
+    cloud: Option<bool>,
+    route: bool,
+    persist: bool,
+    operator: bool,
+) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
     let key = dir.path().join("workload.key");
     fs::write(&key, WORKLOAD).unwrap();
     fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
     let path = dir.path().join("policy.json");
-    let mut credential = json!({"name":"fixture","key_file":key,"class":"test","aliases":["cloud-test","local-test"],"max_in_flight":2,"burst":100});
+    let mut credential = json!({"name":"fixture","key_file":key,"class":"test","aliases":["cloud-test","local-test"],"max_in_flight":2,"burst":100,"operator":operator});
     if let Some(cloud) = cloud {
         credential["cloud_allowed"] = json!(cloud);
     }
@@ -901,4 +911,187 @@ fn codex_storage_rejects_unsafe_permissions_symlinks_hardlinks_and_git_paths() {
     fs::create_dir(nested.join(".git")).unwrap();
     assert!(codex_auth::Store::open(&nested.join("account.json")).is_err());
     assert!(codex_auth::Store::open(&dir.path().join("state/../account.json")).is_err());
+}
+
+async fn assert_native_upstream_error_metric(fixture: &Fixture, expected: u64) {
+    let runtime = fixture.app.current();
+    assert_eq!(runtime.upstream_errors.load(Ordering::Relaxed), expected);
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::AUTHORIZATION,
+        axum::http::HeaderValue::from_str(&format!("Bearer {WORKLOAD}")).unwrap(),
+    );
+    let response = super::status::metrics(axum::extract::State(runtime), headers).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let text = std::str::from_utf8(&body).unwrap();
+    let line = format!("slotline_upstream_errors_total {expected}");
+    assert!(
+        text.lines().any(|value| value == line),
+        "counter missing from metrics export"
+    );
+}
+
+fn metric_request(chat: bool, stream: bool) -> Value {
+    if chat {
+        json!({"model":"cloud-test","messages":[{"role":"user","content":"metric fixture"}],"stream":stream})
+    } else {
+        json!({"model":"cloud-test","input":"metric fixture","stream":stream})
+    }
+}
+
+fn metric_truncated_sse() -> String {
+    format!(
+        "event: response.created\ndata: {}\n\n",
+        json!({
+            "type":"response.created",
+            "response":{"id":"resp_metric","object":"response","model":"gpt-fixture","status":"in_progress","output":[]}
+        })
+    )
+}
+
+#[tokio::test]
+async fn codex_upstream_error_metric_counts_http_failures_once() {
+    for status in [
+        StatusCode::UNAUTHORIZED,
+        StatusCode::TOO_MANY_REQUESTS,
+        StatusCode::BAD_GATEWAY,
+    ] {
+        let fake = fake().await;
+        *fake.state.provider_status.lock().unwrap() = status;
+        let fixture = fixture_with_operator(&fake.base, Some(true), true, true, true);
+        let response = invoke(&fixture, "responses", metric_request(false, false)).await;
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert_native_upstream_error_metric(&fixture, 1).await;
+        let _ = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        assert_native_upstream_error_metric(&fixture, 1).await;
+    }
+}
+
+#[tokio::test]
+async fn codex_upstream_error_metric_counts_buffered_protocol_failures_once() {
+    for chat in [false, true] {
+        let fake = fake().await;
+        *fake.state.sse.lock().unwrap() = metric_truncated_sse();
+        let fixture = fixture_with_operator(&fake.base, Some(true), true, true, true);
+        let endpoint = if chat {
+            "chat/completions"
+        } else {
+            "responses"
+        };
+        let response = invoke(&fixture, endpoint, metric_request(chat, false)).await;
+        assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+        assert_native_upstream_error_metric(&fixture, 1).await;
+    }
+}
+
+#[tokio::test]
+async fn codex_upstream_error_metric_counts_stream_failures_once_after_headers() {
+    for chat in [false, true] {
+        let fake = fake().await;
+        *fake.state.sse.lock().unwrap() = metric_truncated_sse();
+        let fixture = fixture_with_operator(&fake.base, Some(true), true, true, true);
+        let endpoint = if chat {
+            "chat/completions"
+        } else {
+            "responses"
+        };
+        let response = invoke(&fixture, endpoint, metric_request(chat, true)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_native_upstream_error_metric(&fixture, 0).await;
+        assert!(
+            axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .is_err()
+        );
+        assert_native_upstream_error_metric(&fixture, 1).await;
+        assert_native_upstream_error_metric(&fixture, 1).await;
+    }
+}
+
+#[tokio::test]
+async fn codex_upstream_error_metric_excludes_success_and_client_cancellation() {
+    let fake = fake().await;
+    let fixture = fixture_with_operator(&fake.base, Some(true), true, true, true);
+    for chat in [false, true] {
+        for stream in [false, true] {
+            let endpoint = if chat {
+                "chat/completions"
+            } else {
+                "responses"
+            };
+            let response = invoke(&fixture, endpoint, metric_request(chat, stream)).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            let _ = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+                .await
+                .unwrap();
+            assert_native_upstream_error_metric(&fixture, 0).await;
+        }
+    }
+    *fake.state.sse.lock().unwrap() = metric_truncated_sse();
+    let response = invoke(&fixture, "responses", metric_request(false, true)).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    drop(response);
+    assert_native_upstream_error_metric(&fixture, 0).await;
+}
+
+#[tokio::test]
+async fn codex_upstream_error_metric_excludes_policy_and_validation_refusals() {
+    let fake = fake().await;
+    let denied = fixture(&fake, Some(false), true);
+    let response = invoke(&denied, "responses", metric_request(false, false)).await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        denied.app.current().upstream_errors.load(Ordering::Relaxed),
+        0
+    );
+    assert!(fake.state.requests.lock().unwrap().is_empty());
+    let invalid = fixture(&fake, Some(true), true);
+    let response = invoke(
+        &invalid,
+        "responses",
+        json!({"model":"cloud-test","input":123}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        invalid
+            .app
+            .current()
+            .upstream_errors
+            .load(Ordering::Relaxed),
+        0
+    );
+    assert!(fake.state.requests.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn codex_upstream_error_metric_counts_transport_failures_once() {
+    let fake = fake().await;
+    let fixture = fixture_with_operator(&fake.base, Some(true), true, true, true);
+    fake.task.abort();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while !fake.task.is_finished() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let response = invoke(&fixture, "responses", metric_request(false, false)).await;
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_native_upstream_error_metric(&fixture, 1).await;
+}
+
+#[tokio::test]
+async fn codex_upstream_error_metric_excludes_missing_account_preflight() {
+    let fake = fake().await;
+    let fixture = fixture_with_operator(&fake.base, Some(true), true, false, true);
+    let response = invoke(&fixture, "responses", metric_request(false, false)).await;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_native_upstream_error_metric(&fixture, 0).await;
+    assert!(fake.state.requests.lock().unwrap().is_empty());
 }
