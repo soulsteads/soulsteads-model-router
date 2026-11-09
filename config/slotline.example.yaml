@@ -1,7 +1,7 @@
 # Minimal managed-routing example. Replace the bind address with this machine's
-# actual Tailnet IPv4 address (100.64.0.0/10); 100.64.0.1 is illustrative only.
+# actual Tailnet IPv4 address (100.64.0.0/10); 100.127.255.254 is illustrative only.
 # Slotline currently rejects loopback, LAN, wildcard binds and port 4001.
-bind: 100.64.0.1
+bind: 100.127.255.254
 port: 4011
 refresh_seconds: 60
 affinity_lease_seconds: 900

@@ -402,7 +402,7 @@ fn capacity_test_app() -> (tempfile::TempDir, AppState) {
     fs::write(&key, b"local-test-operator-key-1234567890").unwrap();
     fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
     let source = format!(
-        "bind: 100.64.0.1\nport: 4012\naffinity_lease_seconds: 900\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38], class: test, agent_affinity: true, operator: true}}\nroutes:\n  - {{name: small, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 2, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\n  - {{name: large, kind: local, base_url: 'http://127.0.0.1:18105/v1', model: qwen38, safe_concurrency: 10, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: small, priority: 10}}, {{route: large, priority: 10}}]}}\n",
+        "bind: 100.127.255.254\nport: 4012\naffinity_lease_seconds: 900\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38], class: test, agent_affinity: true, operator: true}}\nroutes:\n  - {{name: small, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 2, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\n  - {{name: large, kind: local, base_url: 'http://127.0.0.1:18105/v1', model: qwen38, safe_concurrency: 10, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: small, priority: 10}}, {{route: large, priority: 10}}]}}\n",
         key.display()
     );
     let path = dir.path().join("policy.yaml");
@@ -888,7 +888,7 @@ fn reload_rejects_changed_physical_capacity() {
     fs::write(&key, b"local-test-operator-key-1234567890").unwrap();
     fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
     let source = format!(
-        "bind: 100.64.0.1\nport: 4012\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38], class: test}}\nroutes:\n  - {{name: qwen-4, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 2, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: qwen-4, priority: 10}}]}}\n",
+        "bind: 100.127.255.254\nport: 4012\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38], class: test}}\nroutes:\n  - {{name: qwen-4, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 2, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: qwen-4, priority: 10}}]}}\n",
         key.display()
     );
     let path = dir.path().join("policy.yaml");
@@ -910,7 +910,7 @@ async fn reload_publishes_catalog_with_shared_admission() {
     fs::write(&key, b"local-test-operator-key-1234567890").unwrap();
     fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
     let source = format!(
-        "bind: 100.64.0.1\nport: 4012\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38], class: test}}\nroutes:\n  - {{name: qwen-4, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 1, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: qwen-4, priority: 10}}]}}\n",
+        "bind: 100.127.255.254\nport: 4012\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38], class: test}}\nroutes:\n  - {{name: qwen-4, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 1, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: qwen-4, priority: 10}}]}}\n",
         key.display()
     );
     let path = dir.path().join("policy.yaml");
@@ -994,7 +994,7 @@ fn reload_rejects_changed_legacy_key_material() {
     fs::write(&key, b"local-test-operator-key-1234567890").unwrap();
     fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
     let source = format!(
-        "bind: 100.64.0.1\nport: 4012\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38], class: test}}\nroutes:\n  - {{name: qwen-4, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 1, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: qwen-4, priority: 10}}]}}\n",
+        "bind: 100.127.255.254\nport: 4012\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38], class: test}}\nroutes:\n  - {{name: qwen-4, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 1, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: qwen-4, priority: 10}}]}}\n",
         key.display()
     );
     let path = dir.path().join("policy.yaml");
@@ -1012,7 +1012,7 @@ fn reload_rejects_provider_alias_on_local_route() {
     fs::write(&key, b"local-test-operator-key-1234567890").unwrap();
     fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
     let source = format!(
-        "bind: 100.64.0.1\nport: 4012\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38, gpt-6-luna], class: test}}\nroutes:\n  - {{name: qwen-4, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 1, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: qwen-4, priority: 10}}]}}\n",
+        "bind: 100.127.255.254\nport: 4012\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38, gpt-6-luna], class: test}}\nroutes:\n  - {{name: qwen-4, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 1, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: qwen-4, priority: 10}}]}}\n",
         key.display()
     );
     let path = dir.path().join("policy.yaml");
@@ -1035,7 +1035,7 @@ fn reload_rejects_codex_adapter_disguised_as_qwen() {
     fs::write(&key, b"local-test-operator-key-1234567890").unwrap();
     fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
     let source = format!(
-        "bind: 100.64.0.1\nport: 4012\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38], class: test}}\nroutes:\n  - {{name: qwen-4, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 1, context_limit: 200000, adapter_version: codex-proxy-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: qwen-4, priority: 10}}]}}\n",
+        "bind: 100.127.255.254\nport: 4012\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38], class: test}}\nroutes:\n  - {{name: qwen-4, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 1, context_limit: 200000, adapter_version: codex-proxy-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: qwen-4, priority: 10}}]}}\n",
         key.display()
     );
     let path = dir.path().join("policy.yaml");
@@ -1052,7 +1052,7 @@ async fn invalid_candidate_keeps_generation_auth_and_health() {
     fs::write(&key, b"local-test-operator-key-1234567890").unwrap();
     fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
     let source = format!(
-        "bind: 100.64.0.1\nport: 4012\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38], class: test}}\nroutes:\n  - {{name: qwen-4, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 1, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: qwen-4, priority: 10}}]}}\n",
+        "bind: 100.127.255.254\nport: 4012\ncredentials:\n  - {{name: operator, key_file: {}, aliases: [qwen38], class: test}}\nroutes:\n  - {{name: qwen-4, kind: local, base_url: 'http://127.0.0.1:18104/v1', model: qwen38, safe_concurrency: 1, context_limit: 200000, adapter_version: mock-v1, capabilities: [text], enabled: true}}\naliases:\n  qwen38: {{context_limit: 200000, capabilities: [text], routes: [{{route: qwen-4, priority: 10}}]}}\n",
         key.display()
     );
     let path = dir.path().join("policy.yaml");

@@ -18,7 +18,7 @@ import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = Path(os.environ.get("SLOTLINE_TEST_BINARY", str(ROOT / "target/release/slotline")))
-HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.64.0.1")
+HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.127.255.254")
 PORT = 4012
 KEY = "slotline-mock-operator-key-1234567890"
 LIMITED_KEY = "slotline-mock-limited-key-1234567890"
@@ -312,7 +312,7 @@ aliases:
             ("physical_route: flash-2", "physical_route: missing-route"),
             ("physical_route: flash-2", "physical_route: qwen-4"),
             ("physical_route: flash-2", "physical_route: flash-6"),
-            ("http://127.0.0.1:18108/v1", "http://100.64.0.1:18108/v1"),
+            ("http://127.0.0.1:18108/v1", "http://100.127.255.254:18108/v1"),
             ("health_path: /healthz, safe_concurrency: 4", "health_path: /health, safe_concurrency: 4"),
             ("allowed_routes: [headroom-2]", "allowed_routes: [embedding-14]"),
             ("allowed_routes: [headroom-2]", "allowed_routes: [unknown-route]"),

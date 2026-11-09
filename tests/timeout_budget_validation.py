@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.64.0.1")
+HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.127.255.254")
 PORT = 4013
 
 

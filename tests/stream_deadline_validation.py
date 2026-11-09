@@ -7,7 +7,7 @@ import json, pathlib, tempfile, subprocess, threading, time, urllib.request, url
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 BIN = os.environ.get('SLOTLINE_TEST_BINARY', str(ROOT / 'target/release/slotline'))
-HOST = os.environ.get('SLOTLINE_TEST_HOST', '100.64.0.1')
+HOST = os.environ.get('SLOTLINE_TEST_HOST', '100.127.255.254')
 PORT = int(os.environ.get('SLOTLINE_TEST_PORT', '14013'))
 class Backend(BaseHTTPRequestHandler):
  protocol_version='HTTP/1.1'

@@ -184,7 +184,7 @@ index 0000000000..8f7cf5213b
 +def _wire(scope, session, *, enabled=True):
 +    provider = _normalize_custom_provider_entry({
 +        "name": "slotline-local",
-+        "base_url": "http://100.64.0.1:4011/v1",
++        "base_url": "http://100.127.255.254:4011/v1",
 +        "api_mode": "chat_completions",
 +        "slotline_session_affinity": enabled,
 +    })
@@ -234,7 +234,7 @@ index 0000000000..8f7cf5213b
 +    monkeypatch.setattr(runtime_provider, "load_config", lambda: {"providers": {
 +        "slotline-local": {
 +            "name": "slotline-local",
-+            "api": "http://100.64.0.1:4011/v1",
++            "api": "http://100.127.255.254:4011/v1",
 +            "transport": "chat_completions",
 +            "api_key": "local-test-key",
 +            "slotline_session_affinity": True,
@@ -265,7 +265,7 @@ index 2ede0dba3c..f68a74673c 100644
 +```yaml
 +providers:
 +  slotline-local:
-+    api: http://100.64.0.1:4011/v1
++    api: http://100.127.255.254:4011/v1
 +    key_env: SLOTLINE_WORK_LOCAL_KEY
 +    transport: chat_completions
 +    slotline_session_affinity: true

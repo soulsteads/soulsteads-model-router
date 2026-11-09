@@ -104,7 +104,7 @@ def main():
     backend = ThreadingHTTPServer(('127.0.0.1', 0), Backend)
     backend.daemon_threads = True
     threading.Thread(target=backend.serve_forever, daemon=True).start()
-    host = os.environ.get('SLOTLINE_TEST_HOST', '100.64.0.1')
+    host = os.environ.get('SLOTLINE_TEST_HOST', '100.127.255.254')
     with socket.socket() as probe:
         probe.bind((host, 0))
         port = probe.getsockname()[1]

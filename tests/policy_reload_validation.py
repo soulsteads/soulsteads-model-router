@@ -14,7 +14,7 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get("SLOTLINE_TEST_BINARY", str(ROOT / "target/release/slotline")))
-HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.64.0.1")
+HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.127.255.254")
 PORT = 4014
 BACKEND_PORT = 18121
 KEY = "reload-test-operator-key-1234567890"
