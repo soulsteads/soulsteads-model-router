@@ -1,6 +1,6 @@
 use super::*;
 
-const MAX_EVENT_BYTES: usize = 1024 * 1024;
+pub(super) const MAX_EVENT_BYTES: usize = 1024 * 1024;
 
 #[cfg(test)]
 #[path = "audit_sse_tests.rs"]
@@ -154,7 +154,7 @@ impl ChatToolFragments {
 }
 
 #[derive(Default)]
-struct SseDecoder {
+pub(super) struct SseDecoder {
     line: Vec<u8>,
     data: Option<Vec<u8>>,
     fields: Vec<u8>,
@@ -163,14 +163,17 @@ struct SseDecoder {
     after_cr: bool,
 }
 
-struct SseEvent {
-    data: Option<Vec<u8>>,
+pub(super) struct SseEvent {
+    pub(super) data: Option<Vec<u8>>,
     fields: Vec<u8>,
-    event: Option<String>,
+    pub(super) event: Option<String>,
 }
 
 impl SseDecoder {
-    fn next_event(&mut self, input: &mut &[u8]) -> Result<Option<SseEvent>, &'static str> {
+    pub(super) fn next_event(
+        &mut self,
+        input: &mut &[u8],
+    ) -> Result<Option<SseEvent>, &'static str> {
         while let Some((&byte, rest)) = input.split_first() {
             *input = rest;
             if self.after_cr {

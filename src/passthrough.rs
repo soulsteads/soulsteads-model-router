@@ -155,6 +155,17 @@ pub(crate) async fn dispatch(runtime: Arc<Runtime>, req: Request, endpoint: &str
             "Model is not authorized",
         );
     }
+    if runtime.policy.config.codex.alias.as_ref() == Some(&name) {
+        return match endpoint {
+            "/chat/completions" => handlers::chat(State(runtime), headers, body).await,
+            "/responses" => handlers::responses(State(runtime), headers, body).await,
+            _ => json_error(
+                StatusCode::BAD_REQUEST,
+                "wrong_endpoint",
+                "Codex does not support this endpoint",
+            ),
+        };
+    }
     let Some(alias) = runtime.policy.config.aliases.get(&name) else {
         return json_error(
             StatusCode::NOT_FOUND,

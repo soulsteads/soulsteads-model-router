@@ -2,6 +2,8 @@ mod audit;
 mod audit_identity;
 mod audit_sink;
 mod auth_control;
+mod codex;
+mod codex_auth;
 mod config;
 mod key_manager;
 mod status;
@@ -124,6 +126,9 @@ const MAX_AFFINITY_LEASES: usize = 4096;
 // and configuration keep every indexed observation, counter, lease and shared
 // physical semaphore meaningful while older generations drain.
 fn validate_reload(current: &Policy, candidate: &Policy) -> Result<(), String> {
+    if current.config.codex != candidate.config.codex {
+        return Err("Codex authority cannot change on reload; restart required".into());
+    }
     if current.config.bind != candidate.config.bind || current.config.port != candidate.config.port
     {
         return Err("listener authority cannot change on reload".into());
@@ -468,6 +473,9 @@ async fn models(State(runtime): State<Arc<Runtime>>, headers: HeaderMap) -> Resp
             models.push(json!({"id":name,"object":"model","created":0,"owned_by":"slotline","context_length":alias.context_limit,"model_info":{"mode":mode,"max_input_tokens":alias.context_limit,"max_total_tokens":alias.context_limit}}));
         }
     }
+    if codex::eligible(&credential, &runtime.policy.config.codex) {
+        models.push(json!({"id":runtime.policy.config.codex.alias,"object":"model","created":0,"owned_by":"slotline-codex","model_info":{"mode":"chat"}}));
+    }
     models.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
     let mut response = Response::new(Body::from(
         json!({"object":"list","data":models}).to_string(),
@@ -522,6 +530,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "codex") {
+        return codex_auth::run(&args[1..]).await;
+    }
     if args.first().is_some_and(|arg| arg == "keys") {
         return key_manager::run(&args[1..]);
     }
@@ -610,6 +621,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(test)]
+mod codex_integration_tests;
 #[cfg(test)]
 mod codex_tests;
 

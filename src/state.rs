@@ -96,6 +96,8 @@ pub(crate) struct Runtime {
     pub(crate) auth_limiter: Arc<Semaphore>,
     pub(crate) client: reqwest::Client,
     pub(crate) probes: reqwest::Client,
+    pub(crate) codex_semaphore: Arc<Semaphore>,
+    pub(crate) codex_client: reqwest::Client,
     pub(crate) semaphores: Vec<Arc<Semaphore>>,
     pub(crate) qualification_locks: Vec<Arc<tokio::sync::Mutex<()>>>,
     pub(crate) observations: Arc<Mutex<Vec<RouteObservation>>>,

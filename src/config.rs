@@ -36,16 +36,118 @@ pub struct Config {
     #[serde(default)]
     pub metadata_matchers: Vec<Matcher>,
 }
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct CodexConfig {
     #[serde(default)]
     pub enabled: bool,
+    #[serde(default)]
+    pub alias: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+    #[serde(default)]
+    pub account_file: Option<String>,
+    #[serde(default)]
+    pub auth_base_url: Option<String>,
+    #[serde(default)]
+    pub responses_url: Option<String>,
 }
 
-impl Default for CodexConfig {
-    fn default() -> Self {
-        Self { enabled: false }
+impl CodexConfig {
+    pub(crate) fn auth_base_url(&self) -> &str {
+        self.auth_base_url
+            .as_deref()
+            .unwrap_or("https://auth.openai.com")
+    }
+
+    pub(crate) fn responses_url(&self) -> &str {
+        self.responses_url
+            .as_deref()
+            .unwrap_or("https://chatgpt.com/backend-api/codex/responses")
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        for (name, value) in [
+            ("auth_base_url", self.auth_base_url.as_deref()),
+            ("responses_url", self.responses_url.as_deref()),
+        ] {
+            if let Some(value) = value {
+                let url =
+                    reqwest::Url::parse(value).map_err(|_| format!("invalid Codex {name}"))?;
+                if !url.username().is_empty()
+                    || url.password().is_some()
+                    || url.query().is_some()
+                    || url.fragment().is_some()
+                {
+                    return Err(format!("invalid Codex {name}"));
+                }
+                let host = url.host_str().unwrap_or_default();
+                let ip_host = host.trim_start_matches('[').trim_end_matches(']');
+                let loopback = ip_host
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.is_loopback());
+                let production = match name {
+                    "auth_base_url" => {
+                        url.scheme() == "https"
+                            && host == "auth.openai.com"
+                            && url.port_or_known_default() == Some(443)
+                            && (url.path().is_empty() || url.path() == "/")
+                    }
+                    "responses_url" => {
+                        url.scheme() == "https"
+                            && host == "chatgpt.com"
+                            && url.port_or_known_default() == Some(443)
+                            && url.path() == "/backend-api/codex/responses"
+                    }
+                    _ => false,
+                };
+                let fixture = url.scheme() == "http" && loopback;
+                if !production && !fixture {
+                    return Err(format!(
+                        "unsafe Codex {name}; use HTTPS or a loopback fixture"
+                    ));
+                }
+            }
+        }
+        if self.enabled {
+            let alias = self
+                .alias
+                .as_deref()
+                .filter(|value| !value.trim().is_empty());
+            let model = self
+                .model
+                .as_deref()
+                .filter(|value| !value.trim().is_empty());
+            let account_file = self
+                .account_file
+                .as_deref()
+                .filter(|value| !value.trim().is_empty());
+            if alias.is_none() || model.is_none() || account_file.is_none() {
+                return Err("enabled Codex requires alias, model, and account_file".into());
+            }
+            let account_file = std::path::Path::new(account_file.unwrap());
+            if !account_file.is_absolute() || account_file.file_name().is_none() {
+                return Err("Codex account_file must be an absolute file path".into());
+            }
+            if account_file
+                .ancestors()
+                .any(|ancestor| ancestor.join(".git").exists())
+            {
+                return Err("Codex account_file must be outside a Git worktree".into());
+            }
+        }
+        if self
+            .alias
+            .as_deref()
+            .is_some_and(|alias| alias.trim().is_empty())
+            || self
+                .model
+                .as_deref()
+                .is_some_and(|model| model.trim().is_empty())
+        {
+            return Err("Codex alias and model must not be empty".into());
+        }
+        Ok(())
     }
 }
 
@@ -478,6 +580,7 @@ pub fn key_credentials_from_snapshot(
             aliases: policy.aliases,
             allowed_routes: policy.allowed_routes,
             class: policy.class,
+            cloud_allowed: policy.cloud_allowed,
             requests_per_minute: policy.requests_per_minute,
             burst: policy.burst,
             max_in_flight: policy.max_in_flight,
@@ -489,21 +592,22 @@ pub fn key_credentials_from_snapshot(
     credentials.sort_by(|a, b| a.name.cmp(&b.name));
     let mut class_limits = HashMap::new();
     for credential in &credentials {
-        if credential
-            .aliases
-            .iter()
-            .any(|alias| !config.aliases.contains_key(alias))
-        {
+        if credential.aliases.iter().any(|alias| {
+            !config.aliases.contains_key(alias)
+                && config.codex.alias.as_deref() != Some(alias.as_str())
+        }) {
             return Err(format!("unknown authorized alias for {}", credential.name));
         }
         if !credential.allowed_routes.is_empty() {
             let allowed: HashSet<_> = credential.allowed_routes.iter().collect();
             if allowed.len() != credential.allowed_routes.len()
-                || credential
-                    .allowed_routes
-                    .iter()
-                    .any(|name| !config.routes.iter().any(|route| &route.name == name))
+                || credential.allowed_routes.iter().any(|name| {
+                    name != "codex" && !config.routes.iter().any(|route| &route.name == name)
+                })
                 || credential.aliases.iter().any(|name| {
+                    if config.codex.alias.as_ref() == Some(name) {
+                        return !allowed.contains(&"codex".to_string());
+                    }
                     !config.aliases[name].routes.iter().any(|entry| {
                         entry.enabled
                             && allowed.contains(&entry.route)
@@ -568,6 +672,16 @@ pub fn load(path: &Path) -> Result<Policy, String> {
     let text = fs::read_to_string(path).map_err(|e| format!("config read: {e}"))?;
     let mut config: Config =
         serde_yaml::from_str(&text).map_err(|e| format!("config parse: {e}"))?;
+    config.codex.validate()?;
+    if config
+        .codex
+        .alias
+        .as_ref()
+        .is_some_and(|name| config.aliases.contains_key(name))
+        || (config.codex.enabled && config.routes.iter().any(|route| route.name == "codex"))
+    {
+        return Err("Codex provider alias and route identity must be exclusive".into());
+    }
     let key_snapshot = if let Some(path) = &config.key_store {
         if !config.credentials.is_empty() || !Path::new(path).is_absolute() {
             return Err("key_store requires an absolute path and no legacy credentials".into());
@@ -838,18 +952,20 @@ pub fn load(path: &Path) -> Result<Policy, String> {
         if credential
             .aliases
             .iter()
-            .any(|a| !config.aliases.contains_key(a))
+            .any(|a| !config.aliases.contains_key(a) && config.codex.alias.as_ref() != Some(a))
         {
             return Err(format!("unknown authorized alias for {}", credential.name));
         }
         if !credential.allowed_routes.is_empty() {
             let allowed: HashSet<_> = credential.allowed_routes.iter().collect();
             if allowed.len() != credential.allowed_routes.len()
-                || credential
-                    .allowed_routes
-                    .iter()
-                    .any(|name| !config.routes.iter().any(|route| &route.name == name))
+                || credential.allowed_routes.iter().any(|name| {
+                    name != "codex" && !config.routes.iter().any(|route| &route.name == name)
+                })
                 || credential.aliases.iter().any(|name| {
+                    if config.codex.alias.as_ref() == Some(name) {
+                        return !allowed.contains(&"codex".to_string());
+                    }
                     !config.aliases[name].routes.iter().any(|entry| {
                         entry.enabled
                             && allowed.contains(&entry.route)

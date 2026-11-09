@@ -723,6 +723,8 @@ pub(super) fn make_runtime(
             auth_limiter: old.auth_limiter.clone(),
             client: old.client.clone(),
             probes: old.probes.clone(),
+            codex_semaphore: old.codex_semaphore.clone(),
+            codex_client: old.codex_client.clone(),
             semaphores: old.semaphores.clone(),
             qualification_locks: old.qualification_locks.clone(),
             observations: old.observations.clone(),
@@ -753,6 +755,13 @@ pub(super) fn make_runtime(
         .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| e.to_string())?;
+    let codex_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .connect_timeout(Duration::from_secs(5))
+        .pool_idle_timeout(Duration::from_secs(90))
+        .build()
+        .map_err(|_| "Codex transport initialization failed".to_string())?;
     let now = Instant::now();
     let auth = initial_auth(&policy);
     let physical_semaphores: Vec<_> = policy
@@ -781,6 +790,8 @@ pub(super) fn make_runtime(
         policy_digest,
         policy_generation: 1,
         audit_metrics: Arc::new(crate::audit::Metrics::default()),
+        codex_semaphore: Arc::new(Semaphore::new(8)),
+        codex_client,
         semaphores,
         qualification_locks,
         auth: Arc::new(RwLock::new(auth)),
