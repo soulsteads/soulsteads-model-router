@@ -48,6 +48,9 @@ pub(super) async fn chat(
             "Model is not authorized",
         );
     }
+    if runtime.policy.config.codex.alias.as_ref() == Some(&alias_name) {
+        return codex::forward(runtime, credential, headers, request, true, class_permit).await;
+    }
     let alias = match runtime.policy.config.aliases.get(&alias_name) {
         Some(x) => x,
         None => {
@@ -219,6 +222,9 @@ pub(super) async fn responses(
             "model_not_allowed",
             "Model is not authorized",
         );
+    }
+    if runtime.policy.config.codex.alias.as_ref() == Some(&alias_name) {
+        return codex::forward(runtime, credential, headers, request, false, class_permit).await;
     }
     let Some(alias) = runtime.policy.config.aliases.get(&alias_name) else {
         return json_error(

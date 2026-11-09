@@ -35,6 +35,8 @@ pub struct KeyPolicy {
     #[serde(default)]
     pub allowed_routes: Vec<String>,
     #[serde(default)]
+    pub cloud_allowed: bool,
+    #[serde(default)]
     pub expires_at: Option<i64>,
 }
 
@@ -607,6 +609,7 @@ mod tests {
             operator: false,
             agent_affinity: true,
             allowed_routes: vec![],
+            cloud_allowed: false,
             expires_at: None,
         }
     }

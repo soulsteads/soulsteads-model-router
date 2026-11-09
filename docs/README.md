@@ -1,5 +1,7 @@
 # Documentation
 
+- [Native Codex provider](CODEX.md): opt-in authentication, permissions and offline-test boundary.
+
 Start with the [project README](../README.md) for the overview. The public guides
 below describe the current source contract, not the state of a particular
 installation. The gateway still builds as `slotline`.
