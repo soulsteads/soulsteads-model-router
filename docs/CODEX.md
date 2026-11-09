@@ -113,6 +113,10 @@ a stale in-flight failure cannot invalidate a newer refreshed token.
   first-output/idle budgets apply; without a class budget the absolute ceiling
   is `min(300, retry_policy.total_seconds)` seconds.
 
+## Metrics
+
+Observed native inference HTTP, transport and protocol failures increment the existing `slotline_upstream_errors_total` counter once per request. This includes body errors observed while relaying an SSE response after its 200 headers. Successful requests, client cancellation, policy/input refusals and missing-account preflight failures do not increment this inference counter. The existing operator-only metrics authorization remains unchanged.
+
 ## Network and verification boundary
 
 Defaults are `https://auth.openai.com` and
