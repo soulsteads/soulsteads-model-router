@@ -67,6 +67,8 @@ fn codex_endpoint_policy_allows_loopback_fixtures_but_not_remote_http() {
         alias: Some("codex-test".into()),
         model: Some("gpt-test".into()),
         account_file: Some("/var/lib/slotline-codex-fixture/account.json".into()),
+        auth_source: crate::config::CodexAuthSource::Auto,
+        cli_auth_file: None,
         auth_base_url: Some("http://127.0.0.1:40123".into()),
         responses_url: Some("http://[::1]:40123/backend-api/codex/responses".into()),
     };
