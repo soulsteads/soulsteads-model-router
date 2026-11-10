@@ -4,6 +4,8 @@ mod audit_sink;
 mod auth_control;
 mod codex;
 mod codex_auth;
+#[cfg(test)]
+mod codex_cli_auth_tests;
 mod config;
 mod key_manager;
 mod status;

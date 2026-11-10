@@ -11,13 +11,15 @@ use std::{
         fd::{AsRawFd, FromRawFd},
         unix::{ffi::OsStrExt, fs::MetadataExt},
     },
-    path::{Component, Path},
+    path::{Component, Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 pub(crate) const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTH_ERROR: &str = "Codex credentials unavailable; run codex login locally";
 const STORAGE_ERROR: &str = "Unsafe or unavailable Codex private account storage";
+const CLI_AUTH_ERROR: &str = "Codex CLI credentials unavailable; run codex login locally";
+const CLI_AUTH_EXPIRED: &str = "Codex CLI access token expired; run codex login locally";
 const MAX_AUTH: usize = 128 * 1024;
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -30,6 +32,8 @@ pub(crate) struct Account {
     pub(crate) expires_at: u64,
     #[serde(default)]
     pub(crate) refresh_failed: bool,
+    #[serde(skip)]
+    pub(crate) cli_auth: bool,
 }
 
 pub(crate) fn now() -> u64 {
@@ -60,8 +64,93 @@ fn account_claim(token: &str) -> Result<String, &'static str> {
     Ok(account.to_owned())
 }
 
+fn maybe_account_claim(token_claims: &Value) -> Result<Option<String>, &'static str> {
+    let Some(auth) = token_claims.get("https://api.openai.com/auth") else {
+        return Ok(None);
+    };
+    let Some(auth) = auth.as_object() else {
+        return Err(AUTH_ERROR);
+    };
+    let Some(account) = auth.get("chatgpt_account_id") else {
+        return Ok(None);
+    };
+    let account = account
+        .as_str()
+        .filter(|value| safe_secret(value) && value.len() <= 256)
+        .ok_or(AUTH_ERROR)?;
+    Ok(Some(account.to_owned()))
+}
+
 impl Account {
+    fn from_cli_value(value: &Value) -> Result<Self, &'static str> {
+        if value.get("auth_mode").and_then(Value::as_str) != Some("chatgpt") {
+            return Err(CLI_AUTH_ERROR);
+        }
+        let tokens = value
+            .get("tokens")
+            .and_then(Value::as_object)
+            .ok_or(CLI_AUTH_ERROR)?;
+        let access_token = tokens
+            .get("access_token")
+            .and_then(Value::as_str)
+            .filter(|token| safe_secret(token))
+            .ok_or(CLI_AUTH_ERROR)?
+            .to_owned();
+        let token_claims = claims(&access_token).map_err(|_| CLI_AUTH_ERROR)?;
+        let expires_at = token_claims["exp"]
+            .as_u64()
+            .filter(|expires| *expires > now())
+            .ok_or(CLI_AUTH_EXPIRED)?;
+        let file_account = match tokens.get("account_id") {
+            Some(Value::String(account)) if safe_secret(account) && account.len() <= 256 => {
+                Some(account.as_str())
+            }
+            Some(_) => return Err(CLI_AUTH_ERROR),
+            None => None,
+        };
+        let token_account = maybe_account_claim(&token_claims).map_err(|_| CLI_AUTH_ERROR)?;
+        let account_id = match (file_account, token_account.as_deref()) {
+            (Some(file_account), Some(token_account)) if file_account == token_account => {
+                file_account.to_owned()
+            }
+            (Some(_), Some(_)) => return Err(CLI_AUTH_ERROR),
+            (Some(file_account), None) => file_account.to_owned(),
+            (None, Some(token_account)) => token_account.to_owned(),
+            (None, None) => return Err(CLI_AUTH_ERROR),
+        };
+        let account = Self {
+            access_token,
+            refresh_token: String::new(),
+            id_token: String::new(),
+            account_id,
+            expires_at,
+            refresh_failed: false,
+            cli_auth: true,
+        };
+        account.validate()?;
+        Ok(account)
+    }
+
     fn validate(&self) -> Result<(), &'static str> {
+        if self.cli_auth {
+            if !safe_secret(&self.access_token)
+                || !safe_secret(&self.account_id)
+                || self.account_id.len() > 256
+                || self.expires_at <= now()
+                || !self.refresh_token.is_empty()
+                || !self.id_token.is_empty()
+            {
+                return Err(CLI_AUTH_ERROR);
+            }
+            let access_claims = claims(&self.access_token).map_err(|_| CLI_AUTH_ERROR)?;
+            if access_claims["exp"].as_u64() != Some(self.expires_at)
+                || maybe_account_claim(&access_claims)?
+                    .is_some_and(|account_id| account_id != self.account_id)
+            {
+                return Err(CLI_AUTH_ERROR);
+            }
+            return Ok(());
+        }
         if !safe_secret(&self.access_token)
             || !safe_secret(&self.refresh_token)
             || !safe_secret(&self.id_token)
@@ -112,6 +201,7 @@ impl Account {
             account_id,
             expires_at,
             refresh_failed: false,
+            cli_auth: false,
         };
         result.validate()?;
         Ok(result)
@@ -324,8 +414,103 @@ async fn bounded_json(response: reqwest::Response) -> Result<Value, &'static str
     serde_json::from_slice(&bytes).map_err(|_| AUTH_ERROR)
 }
 
+pub(crate) fn resolve_cli_auth_path(
+    config: &CodexConfig,
+    codex_home: Option<&std::ffi::OsStr>,
+    home: Option<&std::ffi::OsStr>,
+) -> Result<PathBuf, &'static str> {
+    if let Some(path) = config.cli_auth_file.as_deref() {
+        return Ok(PathBuf::from(path));
+    }
+    let base = if let Some(codex_home) = codex_home {
+        PathBuf::from(codex_home)
+    } else {
+        PathBuf::from(home.ok_or(CLI_AUTH_ERROR)?).join(".codex")
+    };
+    Ok(base.join("auth.json"))
+}
+
+fn cli_auth_path(config: &CodexConfig) -> Result<PathBuf, &'static str> {
+    let codex_home = std::env::var_os("CODEX_HOME");
+    let home = std::env::var_os("HOME");
+    resolve_cli_auth_path(config, codex_home.as_deref(), home.as_deref())
+}
+
+fn trusted_cli_directory(directory: &File) -> Result<(), &'static str> {
+    let metadata = directory.metadata().map_err(|_| CLI_AUTH_ERROR)?;
+    let uid = unsafe { libc::geteuid() };
+    if (metadata.uid() != uid && metadata.uid() != 0)
+        || (metadata.mode() & 0o022 != 0
+            && !(metadata.uid() == 0 && metadata.mode() & libc::S_ISVTX != 0))
+    {
+        return Err(CLI_AUTH_ERROR);
+    }
+    Ok(())
+}
+
+fn stable_cli_snapshot(before: &std::fs::Metadata, after: &std::fs::Metadata) -> bool {
+    before.dev() == after.dev()
+        && before.ino() == after.ino()
+        && before.uid() == after.uid()
+        && before.mode() == after.mode()
+        && before.nlink() == after.nlink()
+        && before.len() == after.len()
+        && before.mtime() == after.mtime()
+        && before.mtime_nsec() == after.mtime_nsec()
+        && before.ctime() == after.ctime()
+        && before.ctime_nsec() == after.ctime_nsec()
+}
+
+pub(crate) fn read_cli_auth_file(path: &Path) -> Result<Account, &'static str> {
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|part| matches!(part, Component::ParentDir | Component::CurDir))
+    {
+        return Err(CLI_AUTH_ERROR);
+    }
+    let parent = path.parent().ok_or(CLI_AUTH_ERROR)?;
+    let mut directory = File::open("/").map_err(|_| CLI_AUTH_ERROR)?;
+    for component in parent.components() {
+        let Component::Normal(name) = component else {
+            continue;
+        };
+        let name = cstring(name).map_err(|_| CLI_AUTH_ERROR)?;
+        directory = open_at(&directory, &name, libc::O_RDONLY | libc::O_DIRECTORY, 0)
+            .map_err(|_| CLI_AUTH_ERROR)?;
+        trusted_cli_directory(&directory)?;
+    }
+    let filename = path.file_name().ok_or(CLI_AUTH_ERROR)?;
+    let filename = cstring(filename).map_err(|_| CLI_AUTH_ERROR)?;
+    let mut file = open_at(&directory, &filename, libc::O_RDONLY, 0).map_err(|_| CLI_AUTH_ERROR)?;
+    Store::private_file(&file).map_err(|_| CLI_AUTH_ERROR)?;
+    let before = file.metadata().map_err(|_| CLI_AUTH_ERROR)?;
+    if before.len() > MAX_AUTH as u64 {
+        return Err(CLI_AUTH_ERROR);
+    }
+    let mut bytes = Vec::with_capacity(before.len() as usize);
+    (&mut file)
+        .take((MAX_AUTH + 1) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| CLI_AUTH_ERROR)?;
+    let after = file.metadata().map_err(|_| CLI_AUTH_ERROR)?;
+    if bytes.len() > MAX_AUTH
+        || bytes.len() as u64 != after.len()
+        || !stable_cli_snapshot(&before, &after)
+    {
+        return Err(CLI_AUTH_ERROR);
+    }
+    let value: Value = serde_json::from_slice(&bytes).map_err(|_| CLI_AUTH_ERROR)?;
+    Account::from_cli_value(&value)
+}
+
 pub(crate) async fn access(config: &CodexConfig) -> Result<Account, &'static str> {
     config.validate().map_err(|_| AUTH_ERROR)?;
+    if config.resolved_auth_source().map_err(|_| AUTH_ERROR)?
+        == crate::config::CodexAuthSource::CodexCli
+    {
+        return read_cli_auth_file(&cli_auth_path(config).map_err(|_| CLI_AUTH_ERROR)?);
+    }
     let store = Store::open(Path::new(config.account_file.as_deref().ok_or(AUTH_ERROR)?))?;
     let _lock = store.lock().await?;
     let mut account = store.read()?;
@@ -343,6 +528,12 @@ pub(crate) async fn access(config: &CodexConfig) -> Result<Account, &'static str
 }
 
 pub(crate) async fn reject(config: &CodexConfig, rejected: &Account) -> Result<(), &'static str> {
+    if rejected.cli_auth
+        || config.resolved_auth_source().map_err(|_| AUTH_ERROR)?
+            == crate::config::CodexAuthSource::CodexCli
+    {
+        return Ok(());
+    }
     let store = Store::open(Path::new(config.account_file.as_deref().ok_or(AUTH_ERROR)?))?;
     let _lock = store.lock().await?;
     let mut current = store.read()?;
@@ -365,6 +556,11 @@ pub(crate) async fn login_for(
     announce: impl Fn(&str, &str),
     timeout: Duration,
 ) -> Result<(), &'static str> {
+    if config.resolved_auth_source().map_err(|_| AUTH_ERROR)?
+        == crate::config::CodexAuthSource::CodexCli
+    {
+        return Err("Codex CLI auth is read-only; run codex login locally");
+    }
     config.validate().map_err(|_| AUTH_ERROR)?;
     if !config.enabled {
         return Err("Codex is disabled");
@@ -450,16 +646,51 @@ pub(crate) async fn login_for(
 }
 
 pub(crate) fn status(config: &CodexConfig) -> Value {
-    let state = config
-        .account_file
-        .as_deref()
-        .and_then(|path| Store::open(Path::new(path)).ok())
-        .and_then(|store| store.read().ok());
-    match state {
-        Some(account) => {
-            json!({"enabled":config.enabled,"state":if account.expires_at > now() {"ready"} else {"expired"},"expires_at":account.expires_at})
+    let source = match config.resolved_auth_source() {
+        Ok(source) => source,
+        Err(_) => {
+            return json!({"enabled": config.enabled, "source": "invalid", "state": "configuration_error", "error": "configuration_invalid"});
         }
-        None => json!({"enabled":config.enabled,"state":"reauthentication_required"}),
+    };
+    let source_name = match source {
+        crate::config::CodexAuthSource::CodexCli => "codex_cli",
+        crate::config::CodexAuthSource::Managed => "managed",
+        crate::config::CodexAuthSource::Auto => "invalid",
+    };
+    if !config.enabled {
+        return json!({"enabled": false, "source": source_name, "state": "disabled"});
+    }
+    match source {
+        crate::config::CodexAuthSource::CodexCli => {
+            match cli_auth_path(config).and_then(|path| read_cli_auth_file(&path)) {
+                Ok(_) => json!({"enabled": true, "source": source_name, "state": "ready"}),
+                Err(CLI_AUTH_EXPIRED) => {
+                    json!({"enabled": true, "source": source_name, "state": "expired", "error": "cli_token_expired", "action": "run codex login"})
+                }
+                Err(_) => {
+                    json!({"enabled": true, "source": source_name, "state": "reauthentication_required", "error": "cli_credentials_unavailable"})
+                }
+            }
+        }
+        crate::config::CodexAuthSource::Managed => {
+            let account = config
+                .account_file
+                .as_deref()
+                .and_then(|path| Store::open(Path::new(path)).ok())
+                .and_then(|store| store.read().ok());
+            match account {
+                Some(account) if account.expires_at > now() => {
+                    json!({"enabled": true, "source": source_name, "state": "ready"})
+                }
+                Some(_) => json!({"enabled": true, "source": source_name, "state": "expired"}),
+                None => {
+                    json!({"enabled": true, "source": source_name, "state": "reauthentication_required", "error": "managed_credentials_unavailable"})
+                }
+            }
+        }
+        crate::config::CodexAuthSource::Auto => {
+            json!({"enabled": config.enabled, "source": "invalid", "state": "configuration_error", "error": "configuration_invalid"})
+        }
     }
 }
 
@@ -545,7 +776,7 @@ mod unit_tests {
         };
         assert_eq!(
             status(&config),
-            json!({"enabled":true,"state":"reauthentication_required"})
+            json!({"enabled":true,"source":"managed","state":"reauthentication_required","error":"managed_credentials_unavailable"})
         );
     }
 }

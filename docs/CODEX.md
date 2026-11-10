@@ -1,10 +1,33 @@
-# Native Codex provider (opt-in)
+# Native Codex provider
 
-Slotline owns device authorization, refresh, private account storage and the
-Responses transport in Rust. No external Codex executable, LiteLLM server,
-Python runtime or imported account file is used. This is interoperability with
-an undocumented backend, **not live-provider acceptance**. Do not enable real
-traffic without a separately authorized live test.
+## Preferred authentication: read-only reuse of Codex CLI login
+
+With Codex enabled, `auth_source: auto` is the default. If legacy `account_file`
+is absent, Slotline reads the current file-backed Codex CLI ChatGPT session from
+`$CODEX_HOME/auth.json`, or `$HOME/.codex/auth.json` when `CODEX_HOME` is unset.
+Set `cli_auth_file` to override that location. If `account_file` is present,
+auto preserves the existing Slotline-managed source; source selection never
+falls back based on file availability. Use `auth_source: codex_cli` or
+`auth_source: managed` to state the source explicitly. Ambiguous combinations
+are rejected.
+
+The CLI source accepts only `auth_mode: chatgpt` with a usable access token.
+Slotline reads the file on each request, validates a bounded descriptor
+snapshot, and never copies, refreshes, rotates, deletes, locks, or otherwise
+writes the system auth file. The Codex CLI remains responsible for token
+refresh. If the access token expires, status reports it unavailable and directs
+the operator to run `codex login` locally. Keyring-only CLI auth is not read by
+this file-backed source; no keyring dependency is added. Native Slotline OAuth
+login is not started for this source.
+
+For a safe readiness probe, configure `enabled: true` and
+`auth_source: codex_cli` (omit `cli_auth_file` to use the system default), then
+run `slotline codex status CONFIG.yaml`. Status reads the selected local file
+only; it does not call a provider or change authentication state.
+
+This is interoperability with an undocumented backend, **not live-provider
+acceptance**. Do not enable real traffic without a separately authorized live
+test.
 
 ## Configuration and default denial
 
@@ -18,8 +41,25 @@ codex:
   enabled: true
   alias: codex-chat
   model: YOUR_ENTITLED_CODEX_MODEL
+  auth_source: auto
+  # Optional absolute override; default is CODEX_HOME/auth.json or HOME/.codex/auth.json.
+  # cli_auth_file: /absolute/path/to/auth.json
+```
+
+### Optional Slotline-managed OAuth qualification (compatibility path)
+
+Existing device authorization, token refresh, and Slotline-owned private account
+storage remain available for explicit qualification. They are separate from the
+preferred CLI source and should be selected explicitly:
+
+```yaml
+codex:
+  auth_source: managed
   account_file: /var/lib/slotline-codex/account.json
 ```
+
+The historical managed-login and refresh evidence below remains applicable only
+to this managed source. Do not use `slotline codex login` for the CLI source.
 
 The backend defaults to disabled. Every workload/key policy defaults to
 `cloud_allowed: false`. In addition to normal key/verifier, name, class and rate

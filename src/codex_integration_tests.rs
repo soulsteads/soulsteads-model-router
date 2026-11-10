@@ -24,7 +24,18 @@ fn account() -> codex_auth::Account {
         account_id: "fixture-account".into(),
         expires_at: codex_auth::now() + 3600,
         refresh_failed: false,
+        cli_auth: false,
     }
+}
+
+fn cli_access_token() -> String {
+    use base64::Engine as _;
+    let claims = json!({"exp": codex_auth::now() + 3600, "https://api.openai.com/auth":{"chatgpt_account_id":"fixture-account"}});
+    format!(
+        "e30.{}.synthetic",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_vec(&claims).unwrap())
+    )
 }
 
 fn completed(output: Value) -> Value {
@@ -283,6 +294,21 @@ fn fixture_with_operator(
     persist: bool,
     operator: bool,
 ) -> Fixture {
+    fixture_with_auth_source(base, cloud, route, persist, operator, false)
+}
+
+fn fixture_with_cli_auth(base: &str) -> Fixture {
+    fixture_with_auth_source(base, Some(true), true, false, false, true)
+}
+
+fn fixture_with_auth_source(
+    base: &str,
+    cloud: Option<bool>,
+    route: bool,
+    persist: bool,
+    operator: bool,
+    cli_auth: bool,
+) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
     let key = dir.path().join("workload.key");
@@ -301,12 +327,28 @@ fn fixture_with_operator(
     } else {
         PathBuf::from("/var/lib/slotline-nonexistent-fixture/account.json")
     };
-    let value = json!({"bind":"100.127.255.254","port":14022,
+    let mut value = json!({"bind":"100.127.255.254","port":14022,
         "codex":{"enabled":true,"alias":"cloud-test","model":"gpt-fixture","account_file":account_path,"auth_base_url":base,"responses_url":format!("{base}/backend-api/codex/responses")},
         "credentials":[credential],
         "routes":[{"name":"local","kind":"local","base_url":format!("{base}/v1"),"model":"local-fixture","safe_concurrency":1,"context_limit":2000,"adapter_version":"synthetic","capabilities":["text","responses"],"streaming":true,"enabled":true}],
         "aliases":{"local-test":{"context_limit":2000,"capabilities":["text","responses"],"routes":[{"route":"local","priority":0}]}}
     });
+    if cli_auth {
+        let cli_dir = dir.path().join(".codex");
+        fs::create_dir(&cli_dir).unwrap();
+        fs::set_permissions(&cli_dir, fs::Permissions::from_mode(0o755)).unwrap();
+        let cli_path = cli_dir.join("auth.json");
+        let cli_access = cli_access_token();
+        fs::write(
+            &cli_path,
+            json!({"auth_mode":"chatgpt","tokens":{"access_token":cli_access,"account_id":"fixture-account"}}).to_string(),
+        )
+        .unwrap();
+        fs::set_permissions(&cli_path, fs::Permissions::from_mode(0o600)).unwrap();
+        value["codex"]["account_file"] = json!(null);
+        value["codex"]["auth_source"] = json!("codex_cli");
+        value["codex"]["cli_auth_file"] = json!(cli_path);
+    }
     fs::write(&path, value.to_string()).unwrap();
     let policy = config::load(&path).unwrap();
     let config = policy.config.codex.clone();
@@ -329,6 +371,42 @@ fn fixture_with_operator(
         router,
         config,
     }
+}
+
+#[tokio::test]
+async fn cli_access_token_reaches_loopback_upstream_without_workload_key_or_oauth_refresh() {
+    let fake = fake().await;
+    let fixture = fixture_with_cli_auth(&fake.base);
+    let response = invoke(
+        &fixture,
+        "responses",
+        json!({"model":"cloud-test","input":"synthetic test"}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let requests = fake.state.requests.lock().unwrap();
+    assert_eq!(requests.len(), 1);
+    let authorization = requests[0]
+        .1
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap();
+    assert_eq!(authorization, format!("Bearer {}", cli_access_token()));
+    assert_ne!(authorization, format!("Bearer {WORKLOAD}"));
+    assert_eq!(
+        requests[0].1.get("chatgpt-account-id").unwrap(),
+        "fixture-account"
+    );
+    assert!(!requests[0].1.contains_key("x-api-key"));
+    assert!(!requests[0].1.contains_key("proxy-authorization"));
+    for (name, value) in &requests[0].1 {
+        assert!(
+            !value.to_str().unwrap().contains(WORKLOAD),
+            "workload credential forwarded in {name}"
+        );
+    }
+    assert_eq!(fake.state.refreshes.load(Ordering::SeqCst), 0);
 }
 
 async fn invoke(fixture: &Fixture, endpoint: &str, value: Value) -> Response {

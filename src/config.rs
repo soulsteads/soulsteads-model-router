@@ -48,12 +48,46 @@ pub struct CodexConfig {
     #[serde(default)]
     pub account_file: Option<String>,
     #[serde(default)]
+    pub auth_source: CodexAuthSource,
+    #[serde(default)]
+    pub cli_auth_file: Option<String>,
+    #[serde(default)]
     pub auth_base_url: Option<String>,
     #[serde(default)]
     pub responses_url: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CodexAuthSource {
+    #[default]
+    Auto,
+    CodexCli,
+    Managed,
+}
+
 impl CodexConfig {
+    pub(crate) fn resolved_auth_source(&self) -> Result<CodexAuthSource, String> {
+        match self.auth_source {
+            CodexAuthSource::Auto => {
+                match (self.account_file.is_some(), self.cli_auth_file.is_some()) {
+                    (true, false) => Ok(CodexAuthSource::Managed),
+                    (false, _) => Ok(CodexAuthSource::CodexCli),
+                    (true, true) => Err("Codex auth source/path combination is ambiguous".into()),
+                }
+            }
+            CodexAuthSource::CodexCli if self.account_file.is_none() => {
+                Ok(CodexAuthSource::CodexCli)
+            }
+            CodexAuthSource::Managed
+                if self.account_file.is_some() && self.cli_auth_file.is_none() =>
+            {
+                Ok(CodexAuthSource::Managed)
+            }
+            _ => Err("Codex auth source/path combination is invalid".into()),
+        }
+    }
+
     pub(crate) fn auth_base_url(&self) -> &str {
         self.auth_base_url
             .as_deref()
@@ -67,6 +101,7 @@ impl CodexConfig {
     }
 
     pub(crate) fn validate(&self) -> Result<(), String> {
+        let auth_source = self.resolved_auth_source()?;
         for (name, value) in [
             ("auth_base_url", self.auth_base_url.as_deref()),
             ("responses_url", self.responses_url.as_deref()),
@@ -122,18 +157,46 @@ impl CodexConfig {
                 .account_file
                 .as_deref()
                 .filter(|value| !value.trim().is_empty());
-            if alias.is_none() || model.is_none() || account_file.is_none() {
-                return Err("enabled Codex requires alias, model, and account_file".into());
-            }
-            let account_file = std::path::Path::new(account_file.unwrap());
-            if !account_file.is_absolute() || account_file.file_name().is_none() {
-                return Err("Codex account_file must be an absolute file path".into());
-            }
-            if account_file
-                .ancestors()
-                .any(|ancestor| ancestor.join(".git").exists())
+            if alias.is_none()
+                || model.is_none()
+                || (auth_source == CodexAuthSource::Managed && account_file.is_none())
             {
-                return Err("Codex account_file must be outside a Git worktree".into());
+                return Err(
+                    "enabled Codex requires alias and model, plus account_file for managed auth"
+                        .into(),
+                );
+            }
+            if auth_source == CodexAuthSource::Managed {
+                let account_file = std::path::Path::new(account_file.unwrap());
+                if !account_file.is_absolute() || account_file.file_name().is_none() {
+                    return Err("Codex account_file must be an absolute file path".into());
+                }
+                if account_file
+                    .ancestors()
+                    .any(|ancestor| ancestor.join(".git").exists())
+                {
+                    return Err("Codex account_file must be outside a Git worktree".into());
+                }
+            }
+            if let Some(path) = self
+                .cli_auth_file
+                .as_deref()
+                .filter(|_| auth_source == CodexAuthSource::CodexCli)
+            {
+                let path = std::path::Path::new(path);
+                if !path.is_absolute()
+                    || path.file_name().is_none()
+                    || path.components().any(|part| {
+                        matches!(
+                            part,
+                            std::path::Component::ParentDir | std::path::Component::CurDir
+                        )
+                    })
+                {
+                    return Err(
+                        "Codex cli_auth_file must be a normalized absolute file path".into(),
+                    );
+                }
             }
         }
         if self
