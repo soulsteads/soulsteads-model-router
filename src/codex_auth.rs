@@ -566,7 +566,8 @@ pub(crate) async fn login_for(
         return Err("Codex is disabled");
     }
     let store = Store::open(Path::new(config.account_file.as_deref().ok_or(AUTH_ERROR)?))?;
-    let _lock = store.lock().await?;
+    // Validate the lockfile without holding it during device-flow I/O or user waits.
+    drop(store.lock().await?);
     let client = client()?;
     let base = config.auth_base_url().trim_end_matches('/');
     let code = bounded_json(
@@ -637,6 +638,7 @@ pub(crate) async fn login_for(
                 .await
                 .map_err(|_| AUTH_ERROR)?;
             let account = Account::from_token(&bounded_json(response).await?, None)?;
+            let _lock = store.lock().await?;
             store.write(&account)?;
             return Ok(());
         }
