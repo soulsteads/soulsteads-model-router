@@ -48,6 +48,23 @@ pub(super) async fn chat(
             "Model is not authorized",
         );
     }
+    if let Some(endpoint) = runtime
+        .policy
+        .config
+        .copilot
+        .model_for_alias(&alias_name)
+        .map(|model| model.endpoint)
+    {
+        return copilot::forward(
+            runtime,
+            credential,
+            headers,
+            request,
+            endpoint,
+            class_permit,
+        )
+        .await;
+    }
     if runtime.policy.config.codex.alias.as_ref() == Some(&alias_name) {
         return codex::forward(runtime, credential, headers, request, true, class_permit).await;
     }

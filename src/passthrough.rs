@@ -155,6 +155,48 @@ pub(crate) async fn dispatch(runtime: Arc<Runtime>, req: Request, endpoint: &str
             "Model is not authorized",
         );
     }
+    if let Some(model) = runtime
+        .policy
+        .config
+        .copilot
+        .model_for_alias(&name)
+        .cloned()
+    {
+        if !copilot_endpoint_allowed(endpoint, model.endpoint) {
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                "wrong_endpoint",
+                "Model is not authorized for this endpoint",
+            );
+        }
+        if !copilot::eligible(&credential.config, &runtime.policy.config.copilot) {
+            runtime.rejects.fetch_add(1, Ordering::Relaxed);
+            return json_error(
+                StatusCode::FORBIDDEN,
+                "cloud_not_allowed",
+                "Copilot requires explicit workload, model and route permission",
+            );
+        }
+        let class_permit = match credential.class_semaphore.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                return json_error(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "class_capacity_exhausted",
+                    "Too many requests",
+                );
+            }
+        };
+        return copilot::forward(
+            runtime,
+            credential,
+            headers,
+            value,
+            model.endpoint,
+            class_permit,
+        )
+        .await;
+    }
     if runtime.policy.config.codex.alias.as_ref() == Some(&name) {
         return match endpoint {
             "/chat/completions" => handlers::chat(State(runtime), headers, body).await,
@@ -299,5 +341,48 @@ mod tests {
             &[0, 255, 13][..]
         );
         task.abort();
+    }
+}
+
+// Keep native HTTP dispatch authorization aligned with the configured endpoint.
+fn copilot_endpoint_allowed(endpoint: &str, configured: crate::config::CopilotEndpoint) -> bool {
+    endpoint == copilot::endpoint_path(configured)
+}
+
+#[cfg(test)]
+mod copilot_dispatch_tests {
+    use super::copilot_endpoint_allowed;
+    use crate::config::CopilotEndpoint;
+
+    #[test]
+    fn copilot_chat_dispatch_accepts_configured_chat_endpoint() {
+        assert!(copilot_endpoint_allowed(
+            "/chat/completions",
+            CopilotEndpoint::ChatCompletions
+        ));
+    }
+
+    #[test]
+    fn copilot_responses_dispatch_accepts_configured_responses_endpoint() {
+        assert!(copilot_endpoint_allowed(
+            "/responses",
+            CopilotEndpoint::Responses
+        ));
+    }
+
+    #[test]
+    fn copilot_dispatch_rejects_cross_protocol_and_other_endpoints() {
+        assert!(!copilot_endpoint_allowed(
+            "/responses",
+            CopilotEndpoint::ChatCompletions
+        ));
+        assert!(!copilot_endpoint_allowed(
+            "/chat/completions",
+            CopilotEndpoint::Responses
+        ));
+        assert!(!copilot_endpoint_allowed(
+            "/embeddings",
+            CopilotEndpoint::ChatCompletions
+        ));
     }
 }
