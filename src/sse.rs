@@ -11,7 +11,7 @@ mod audit_sse_tests;
 mod stream_progress_tests;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum StreamFailure {
+pub(super) enum StreamFailure {
     FirstOutput,
     Idle,
     Deadline,
@@ -19,7 +19,7 @@ enum StreamFailure {
     Transport,
 }
 impl StreamFailure {
-    fn category(self) -> &'static str {
+    pub(super) fn category(self) -> &'static str {
         match self {
             Self::FirstOutput => "first_output_timeout",
             Self::Idle => "stream_idle_timeout",
@@ -59,11 +59,17 @@ impl ProgressClock {
             saw_progress: false,
         }
     }
-    fn deadline(&self) -> tokio::time::Instant {
+    pub(super) fn deadline(&self) -> tokio::time::Instant {
         self.progress_deadline
             .map_or(self.hard, |progress| progress.min(self.hard))
     }
-    fn failure_at(&self, now: tokio::time::Instant) -> Option<StreamFailure> {
+    pub(super) fn hard_deadline(&self) -> tokio::time::Instant {
+        self.hard
+    }
+    pub(super) fn tracks_progress(&self) -> bool {
+        self.progress_deadline.is_some() || self.idle.is_some()
+    }
+    pub(super) fn failure_at(&self, now: tokio::time::Instant) -> Option<StreamFailure> {
         if now >= self.hard {
             Some(StreamFailure::Deadline)
         } else if self
@@ -79,11 +85,11 @@ impl ProgressClock {
             None
         }
     }
-    fn progress(&mut self, now: tokio::time::Instant) {
+    pub(super) fn progress(&mut self, now: tokio::time::Instant) {
         self.saw_progress = true;
         self.progress_deadline = self.idle.map(|idle| now + idle);
     }
-    fn pause(&mut self, duration: Duration) {
+    pub(super) fn pause(&mut self, duration: Duration) {
         if let Some(deadline) = &mut self.progress_deadline {
             *deadline += duration;
         }

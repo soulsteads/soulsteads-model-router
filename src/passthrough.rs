@@ -177,6 +177,13 @@ pub(crate) async fn dispatch(runtime: Arc<Runtime>, req: Request, endpoint: &str
                 "Copilot requires explicit workload, model and route permission",
             );
         }
+        if !rate_check(&credential) {
+            return json_error(
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limit_exceeded",
+                "Rate limit exceeded",
+            );
+        }
         let class_permit = match credential.class_semaphore.clone().try_acquire_owned() {
             Ok(permit) => permit,
             Err(_) => {
@@ -348,6 +355,10 @@ mod tests {
 fn copilot_endpoint_allowed(endpoint: &str, configured: crate::config::CopilotEndpoint) -> bool {
     endpoint == copilot::endpoint_path(configured)
 }
+
+#[cfg(test)]
+#[path = "copilot_dispatch_tests.rs"]
+mod rate_regressions;
 
 #[cfg(test)]
 mod copilot_dispatch_tests {
