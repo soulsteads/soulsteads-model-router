@@ -7,6 +7,8 @@ mod codex_auth;
 #[cfg(test)]
 mod codex_cli_auth_tests;
 mod config;
+mod copilot;
+mod copilot_auth;
 mod key_manager;
 mod status;
 mod status_cli;
@@ -131,6 +133,9 @@ fn validate_reload(current: &Policy, candidate: &Policy) -> Result<(), String> {
     if current.config.codex != candidate.config.codex {
         return Err("Codex authority cannot change on reload; restart required".into());
     }
+    if current.config.copilot != candidate.config.copilot {
+        return Err("Copilot authority cannot change on reload; restart required".into());
+    }
     if current.config.bind != candidate.config.bind || current.config.port != candidate.config.port
     {
         return Err("listener authority cannot change on reload".into());
@@ -162,11 +167,14 @@ fn validate_reload(current: &Policy, candidate: &Policy) -> Result<(), String> {
         !route.model.starts_with("qwen")
             || route.name.contains("codex")
             || route.name.contains("copilot")
+            || route.name.contains("copilot")
             || adapter.contains("codex")
+            || adapter.contains("copilot")
             || adapter.contains("copilot")
     }) || candidate.config.aliases.keys().any(|name| {
         let name = name.to_ascii_lowercase();
         name.contains("codex")
+            || name.contains("copilot")
             || name.contains("copilot")
             || name.starts_with("gpt")
             || name.starts_with("claude")
@@ -475,6 +483,23 @@ async fn models(State(runtime): State<Arc<Runtime>>, headers: HeaderMap) -> Resp
             models.push(json!({"id":name,"object":"model","created":0,"owned_by":"slotline","context_length":alias.context_limit,"model_info":{"mode":mode,"max_input_tokens":alias.context_limit,"max_total_tokens":alias.context_limit}}));
         }
     }
+    if copilot::eligible(&credential, &runtime.policy.config.copilot) {
+        for model in &runtime.policy.config.copilot.models {
+            if credential.aliases.contains(&model.alias) {
+                let mode = match model.endpoint {
+                    config::CopilotEndpoint::ChatCompletions => "chat",
+                    config::CopilotEndpoint::Responses => "responses",
+                };
+                models.push(json!({
+                    "id": model.alias,
+                    "object": "model",
+                    "created": 0,
+                    "owned_by": "github-copilot",
+                    "model_info": {"mode": mode}
+                }));
+            }
+        }
+    }
     if codex::eligible(&credential, &runtime.policy.config.codex) {
         models.push(json!({"id":runtime.policy.config.codex.alias,"object":"model","created":0,"owned_by":"slotline-codex","model_info":{"mode":"chat"}}));
     }
@@ -503,6 +528,13 @@ async fn current_responses(
     req: axum::extract::Request,
 ) -> Response {
     passthrough::dispatch(app.current(), req, "/responses").await
+}
+async fn unsupported_responses_websocket() -> Response {
+    json_error(
+        StatusCode::NOT_IMPLEMENTED,
+        "unsupported_endpoint",
+        "Responses WebSocket transport is not supported",
+    )
 }
 async fn current_embeddings(
     State(app): State<Arc<AppState>>,
@@ -534,6 +566,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "codex") {
         return codex_auth::run(&args[1..]).await;
+    }
+    if args.first().is_some_and(|arg| arg == "copilot") {
+        return copilot_auth::run(&args[1..]).await;
     }
     if args.first().is_some_and(|arg| arg == "keys") {
         return key_manager::run(&args[1..]);
@@ -602,7 +637,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route("/v1/models", get(current_models))
         .route("/v1/chat/completions", post(current_chat))
-        .route("/v1/responses", post(current_responses))
+        .route(
+            "/v1/responses",
+            post(current_responses).get(unsupported_responses_websocket),
+        )
         .route("/v1/embeddings", post(current_embeddings))
         .route("/healthz", get(current_health))
         .route("/status", get(current_status))

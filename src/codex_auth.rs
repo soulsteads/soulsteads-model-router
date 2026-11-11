@@ -388,6 +388,123 @@ impl Store {
     }
 }
 
+impl Store {
+    pub(crate) fn read_json_value(&self) -> Result<Value, &'static str> {
+        let file = open_at(&self.directory, &self.name, libc::O_RDONLY, 0)?;
+        Self::private_file(&file)?;
+        let mut bytes = Vec::new();
+        file.take((MAX_AUTH + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map_err(|_| STORAGE_ERROR)?;
+        if bytes.len() > MAX_AUTH {
+            return Err(STORAGE_ERROR);
+        }
+        serde_json::from_slice(&bytes).map_err(|_| AUTH_ERROR)
+    }
+
+    pub(crate) fn read_private_text(path: &Path) -> Result<String, &'static str> {
+        let store = Self::open(path)?;
+        let file = open_at(&store.directory, &store.name, libc::O_RDONLY, 0)?;
+        Self::private_file(&file)?;
+        let mut bytes = Vec::new();
+        file.take((MAX_AUTH + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map_err(|_| STORAGE_ERROR)?;
+        if bytes.len() > MAX_AUTH {
+            return Err(STORAGE_ERROR);
+        }
+        String::from_utf8(bytes).map_err(|_| AUTH_ERROR)
+    }
+
+    pub(crate) async fn write_json_value(&self, value: &Value) -> Result<(), &'static str> {
+        let _lock = self.lock().await?;
+        self.write_json_unlocked(value)
+    }
+
+    fn write_json_unlocked(&self, value: &Value) -> Result<(), &'static str> {
+        let bytes = serde_json::to_vec(value).map_err(|_| STORAGE_ERROR)?;
+        if bytes.len() > MAX_AUTH {
+            return Err(STORAGE_ERROR);
+        }
+        let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+        if unsafe {
+            libc::fstatat(
+                self.directory.as_raw_fd(),
+                self.name.as_ptr(),
+                stat.as_mut_ptr(),
+                libc::AT_SYMLINK_NOFOLLOW,
+            )
+        } == 0
+        {
+            let file = open_at(&self.directory, &self.name, libc::O_RDONLY, 0)?;
+            Self::private_file(&file)?;
+        } else if std::io::Error::last_os_error().raw_os_error() != Some(libc::ENOENT) {
+            return Err(STORAGE_ERROR);
+        }
+        let mut random = [0u8; 16];
+        getrandom::fill(&mut random).map_err(|_| STORAGE_ERROR)?;
+        let temporary = CString::new(format!(".slotline-auth-{}", URL_SAFE_NO_PAD.encode(random)))
+            .map_err(|_| STORAGE_ERROR)?;
+        let result = (|| {
+            let mut file = open_at(
+                &self.directory,
+                &temporary,
+                libc::O_WRONLY | libc::O_CREAT | libc::O_EXCL,
+                0o600,
+            )?;
+            file.write_all(&bytes)
+                .and_then(|()| file.sync_all())
+                .map_err(|_| STORAGE_ERROR)?;
+            if unsafe {
+                libc::renameat(
+                    self.directory.as_raw_fd(),
+                    temporary.as_ptr(),
+                    self.directory.as_raw_fd(),
+                    self.name.as_ptr(),
+                )
+            } != 0
+            {
+                return Err(STORAGE_ERROR);
+            }
+            self.directory.sync_all().map_err(|_| STORAGE_ERROR)
+        })();
+        if result.is_err() {
+            unsafe {
+                libc::unlinkat(self.directory.as_raw_fd(), temporary.as_ptr(), 0);
+            }
+        }
+        result
+    }
+
+    pub(crate) async fn remove(&self) -> Result<(), &'static str> {
+        let _lock = self.lock().await?;
+        let file = match open_at(&self.directory, &self.name, libc::O_RDONLY, 0) {
+            Ok(file) => file,
+            Err(_) => {
+                let mut stat = std::mem::MaybeUninit::<libc::stat>::uninit();
+                if unsafe {
+                    libc::fstatat(
+                        self.directory.as_raw_fd(),
+                        self.name.as_ptr(),
+                        stat.as_mut_ptr(),
+                        libc::AT_SYMLINK_NOFOLLOW,
+                    )
+                } != 0
+                    && std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT)
+                {
+                    return Ok(());
+                }
+                return Err(STORAGE_ERROR);
+            }
+        };
+        Self::private_file(&file)?;
+        if unsafe { libc::unlinkat(self.directory.as_raw_fd(), self.name.as_ptr(), 0) } != 0 {
+            return Err(STORAGE_ERROR);
+        }
+        self.directory.sync_all().map_err(|_| STORAGE_ERROR)
+    }
+}
+
 pub(crate) fn client() -> Result<reqwest::Client, &'static str> {
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())

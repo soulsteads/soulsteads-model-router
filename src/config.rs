@@ -24,6 +24,8 @@ pub struct Config {
     #[serde(default)]
     pub codex: CodexConfig,
     #[serde(default)]
+    pub copilot: CopilotConfig,
+    #[serde(default)]
     pub credentials: Vec<Credential>,
     #[serde(default)]
     pub key_store: Option<String>,
@@ -493,6 +495,211 @@ fn default_inflight() -> usize {
     2
 }
 
+#[derive(Clone, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CopilotAuthSource {
+    #[default]
+    Managed,
+    #[serde(rename = "oauth_token_file")]
+    OAuthTokenFile,
+}
+
+#[cfg(test)]
+mod copilot_auth_source_wire_contract {
+    use super::CopilotAuthSource;
+
+    #[test]
+    fn documented_oauth_token_file_source_name_deserializes() {
+        let source = serde_yaml::from_str::<CopilotAuthSource>("oauth_token_file")
+            .expect("the documented read-only source spelling must deserialize");
+        assert!(matches!(source, CopilotAuthSource::OAuthTokenFile));
+    }
+}
+
+#[cfg(test)]
+mod copilot_key_policy_contract {
+    use super::{Config, key_credentials_from_snapshot};
+    use crate::key_manager::{AuthSnapshot, KeyPolicy, SnapshotKey};
+
+    fn config() -> Config {
+        serde_json::from_value(serde_json::json!({
+            "bind": "100.127.255.254", "port": 4000,
+            "refresh_seconds": 30, "affinity_lease_seconds": 300,
+            "credentials": [], "routes": [], "aliases": {},
+            "copilot": {
+                "enabled": true, "auth_source": "oauth_token_file",
+                "oauth_token_file": "/synthetic/github-oauth",
+                "models": [{"alias": "copilot-test", "model": "synthetic-chat", "endpoint": "chat_completions"}]
+            }
+        })).unwrap()
+    }
+
+    fn snapshot(route: &str) -> AuthSnapshot {
+        let policy: KeyPolicy = serde_json::from_value(serde_json::json!({
+            "id": "copilot-workload", "aliases": ["copilot-test"],
+            "class": "interactive", "requests_per_minute": 60,
+            "burst": 10, "max_in_flight": 1, "operator": false,
+            "agent_affinity": true, "allowed_routes": [route],
+            "cloud_allowed": true
+        }))
+        .unwrap();
+        AuthSnapshot::from([(
+            "synthetic-prefix".into(),
+            SnapshotKey {
+                verifier: "synthetic-verifier".into(),
+                policy,
+                expires_at: None,
+            },
+        )])
+    }
+
+    #[test]
+    fn copilot_scoped_key_snapshot_loads_without_local_alias() {
+        let credentials = key_credentials_from_snapshot(&config(), &snapshot("copilot"))
+            .expect("Copilot aliases must validate against their native route");
+        assert_eq!(credentials.len(), 1);
+        assert!(credentials[0].cloud_allowed);
+    }
+
+    #[test]
+    fn copilot_alias_rejects_other_native_route_without_panicking() {
+        assert!(key_credentials_from_snapshot(&config(), &snapshot("codex")).is_err());
+    }
+
+    #[test]
+    fn copilot_scoped_file_policy_loads_without_local_alias() {
+        let directory = tempfile::tempdir().unwrap();
+        let key_path = directory.path().join("client-key");
+        let config_path = directory.path().join("config.json");
+        std::fs::write(&key_path, "synthetic-workload-key-for-native-copilot-only").unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let data = serde_json::json!({
+            "bind": "100.127.255.254", "port": 4000,
+            "refresh_seconds": 30, "affinity_lease_seconds": 300,
+            "credentials": [{
+                "name": "copilot-file-workload", "key_file": key_path,
+                "aliases": ["copilot-test"], "class": "interactive",
+                "requests_per_minute": 60, "burst": 10, "max_in_flight": 1,
+                "allowed_routes": ["copilot"], "cloud_allowed": true
+            }],
+            "routes": [], "aliases": {},
+            "copilot": {
+                "enabled": true, "auth_source": "oauth_token_file",
+                "oauth_token_file": "/synthetic/github-oauth",
+                "models": [{"alias": "copilot-test", "model": "synthetic-chat", "endpoint": "chat_completions"}]
+            }
+        });
+        std::fs::write(&config_path, serde_json::to_vec(&data).unwrap()).unwrap();
+        super::load(&config_path)
+            .expect("Copilot-only file policies must load without local aliases");
+    }
+}
+
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CopilotEndpoint {
+    ChatCompletions,
+    Responses,
+}
+
+#[derive(Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CopilotModel {
+    pub alias: String,
+    pub model: String,
+    pub endpoint: CopilotEndpoint,
+}
+
+#[derive(Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct CopilotConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub auth_source: CopilotAuthSource,
+    #[serde(default)]
+    pub oauth_token_file: Option<String>,
+    #[serde(default)]
+    pub managed_auth_file: Option<String>,
+    #[serde(default)]
+    pub models: Vec<CopilotModel>,
+}
+
+impl Default for CopilotConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            auth_source: CopilotAuthSource::Managed,
+            oauth_token_file: None,
+            managed_auth_file: None,
+            models: Vec::new(),
+        }
+    }
+}
+
+impl CopilotConfig {
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if self.enabled && self.models.is_empty() {
+            return Err("Copilot requires at least one explicitly configured model".into());
+        }
+        match self.auth_source {
+            CopilotAuthSource::Managed => {
+                if self.oauth_token_file.is_some() {
+                    return Err(
+                        "copilot.oauth_token_file is valid only with oauth_token_file auth_source"
+                            .into(),
+                    );
+                }
+                if self
+                    .managed_auth_file
+                    .as_ref()
+                    .is_some_and(|path| !Path::new(path).is_absolute())
+                {
+                    return Err("copilot.managed_auth_file must be absolute".into());
+                }
+            }
+            CopilotAuthSource::OAuthTokenFile => {
+                let Some(path) = self.oauth_token_file.as_ref() else {
+                    return Err(
+                        "copilot.oauth_token_file is required for oauth_token_file auth_source"
+                            .into(),
+                    );
+                };
+                if !Path::new(path).is_absolute() {
+                    return Err("copilot.oauth_token_file must be absolute".into());
+                }
+                if self.managed_auth_file.is_some() {
+                    return Err("copilot.managed_auth_file cannot be used with oauth_token_file auth_source".into());
+                }
+            }
+        }
+        let mut aliases = HashSet::new();
+        for model in &self.models {
+            for value in [&model.alias, &model.model] {
+                if value.is_empty() || value.len() > 128 || value.chars().any(char::is_control) {
+                    return Err(
+                        "Copilot aliases and model names must be 1-128 printable characters".into(),
+                    );
+                }
+            }
+            if model.alias.trim() != model.alias || model.model.trim() != model.model {
+                return Err(
+                    "Copilot aliases and model names cannot have surrounding whitespace".into(),
+                );
+            }
+            if !aliases.insert(&model.alias) {
+                return Err("Copilot model aliases must be unique".into());
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn model_for_alias(&self, alias: &str) -> Option<&CopilotModel> {
+        self.models.iter().find(|model| model.alias == alias)
+    }
+}
+
 #[derive(Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Route {
@@ -658,6 +865,11 @@ pub fn key_credentials_from_snapshot(
         if credential.aliases.iter().any(|alias| {
             !config.aliases.contains_key(alias)
                 && config.codex.alias.as_deref() != Some(alias.as_str())
+                && !config
+                    .copilot
+                    .models
+                    .iter()
+                    .any(|model| model.alias == *alias)
         }) {
             return Err(format!("unknown authorized alias for {}", credential.name));
         }
@@ -665,11 +877,21 @@ pub fn key_credentials_from_snapshot(
             let allowed: HashSet<_> = credential.allowed_routes.iter().collect();
             if allowed.len() != credential.allowed_routes.len()
                 || credential.allowed_routes.iter().any(|name| {
-                    name != "codex" && !config.routes.iter().any(|route| &route.name == name)
+                    name != "codex"
+                        && name != "copilot"
+                        && !config.routes.iter().any(|route| &route.name == name)
                 })
                 || credential.aliases.iter().any(|name| {
                     if config.codex.alias.as_ref() == Some(name) {
                         return !allowed.contains(&"codex".to_string());
+                    }
+                    if config
+                        .copilot
+                        .models
+                        .iter()
+                        .any(|model| model.alias == *name)
+                    {
+                        return !allowed.contains(&"copilot".to_string());
                     }
                     !config.aliases[name].routes.iter().any(|entry| {
                         entry.enabled
@@ -736,14 +958,20 @@ pub fn load(path: &Path) -> Result<Policy, String> {
     let mut config: Config =
         serde_yaml::from_str(&text).map_err(|e| format!("config parse: {e}"))?;
     config.codex.validate()?;
+    config.copilot.validate()?;
     if config
         .codex
         .alias
         .as_ref()
         .is_some_and(|name| config.aliases.contains_key(name))
+        || config.copilot.models.iter().any(|model| {
+            config.aliases.contains_key(&model.alias)
+                || config.codex.alias.as_ref() == Some(&model.alias)
+        })
         || (config.codex.enabled && config.routes.iter().any(|route| route.name == "codex"))
+        || (config.copilot.enabled && config.routes.iter().any(|route| route.name == "copilot"))
     {
-        return Err("Codex provider alias and route identity must be exclusive".into());
+        return Err("Cloud provider alias and route identity must be exclusive".into());
     }
     let key_snapshot = if let Some(path) = &config.key_store {
         if !config.credentials.is_empty() || !Path::new(path).is_absolute() {
@@ -1012,22 +1240,32 @@ pub fn load(path: &Path) -> Result<Policy, String> {
         {
             return Err("invalid credential".into());
         }
-        if credential
-            .aliases
-            .iter()
-            .any(|a| !config.aliases.contains_key(a) && config.codex.alias.as_ref() != Some(a))
-        {
+        if credential.aliases.iter().any(|a| {
+            !config.aliases.contains_key(a)
+                && config.codex.alias.as_ref() != Some(a)
+                && !config.copilot.models.iter().any(|model| &model.alias == a)
+        }) {
             return Err(format!("unknown authorized alias for {}", credential.name));
         }
         if !credential.allowed_routes.is_empty() {
             let allowed: HashSet<_> = credential.allowed_routes.iter().collect();
             if allowed.len() != credential.allowed_routes.len()
                 || credential.allowed_routes.iter().any(|name| {
-                    name != "codex" && !config.routes.iter().any(|route| &route.name == name)
+                    name != "codex"
+                        && name != "copilot"
+                        && !config.routes.iter().any(|route| &route.name == name)
                 })
                 || credential.aliases.iter().any(|name| {
                     if config.codex.alias.as_ref() == Some(name) {
                         return !allowed.contains(&"codex".to_string());
+                    }
+                    if config
+                        .copilot
+                        .models
+                        .iter()
+                        .any(|model| model.alias == *name)
+                    {
+                        return !allowed.contains(&"copilot".to_string());
                     }
                     !config.aliases[name].routes.iter().any(|entry| {
                         entry.enabled
@@ -1095,4 +1333,69 @@ pub fn load(path: &Path) -> Result<Policy, String> {
         tokenizers,
         key_snapshot,
     })
+}
+
+#[cfg(test)]
+mod copilot_config_tdd_tests {
+    use super::*;
+
+    #[test]
+    fn copilot_auth_sources_are_disjoint_and_aliases_are_unique() {
+        let managed_with_external = CopilotConfig {
+            enabled: false,
+            auth_source: CopilotAuthSource::Managed,
+            oauth_token_file: Some("/synthetic/oauth-token".into()),
+            managed_auth_file: None,
+            models: Vec::new(),
+        };
+        assert!(managed_with_external.validate().is_err());
+
+        let read_only_with_managed = CopilotConfig {
+            enabled: false,
+            auth_source: CopilotAuthSource::OAuthTokenFile,
+            oauth_token_file: Some("/synthetic/oauth-token".into()),
+            managed_auth_file: Some("/synthetic/managed-auth.json".into()),
+            models: Vec::new(),
+        };
+        assert!(read_only_with_managed.validate().is_err());
+
+        let duplicate_aliases = CopilotConfig {
+            enabled: true,
+            auth_source: CopilotAuthSource::Managed,
+            oauth_token_file: None,
+            managed_auth_file: None,
+            models: vec![
+                CopilotModel {
+                    alias: "same-alias".into(),
+                    model: "first-model".into(),
+                    endpoint: CopilotEndpoint::ChatCompletions,
+                },
+                CopilotModel {
+                    alias: "same-alias".into(),
+                    model: "second-model".into(),
+                    endpoint: CopilotEndpoint::Responses,
+                },
+            ],
+        };
+        assert!(duplicate_aliases.validate().is_err());
+    }
+
+    #[test]
+    fn native_copilot_configuration_is_a_first_class_config_section() {
+        let yaml = r#"
+bind: 127.0.0.1
+port: 8080
+routes: []
+aliases: {}
+copilot:
+  enabled: true
+  auth_source: managed
+  models:
+    - alias: copilot-haiku
+      model: claude-haiku-5.5
+      endpoint: chat_completions
+"#;
+        let parsed = serde_yaml::from_str::<Config>(yaml);
+        assert!(parsed.is_ok(), "Copilot config must parse");
+    }
 }
