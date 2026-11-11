@@ -29,6 +29,7 @@ async fn audit_sse_first_meaningful_not_role_heartbeat_and_usage_reused() {
         assert!(!std::str::from_utf8(&capture.0.lock().unwrap()).unwrap().contains("request first output"));
         normalize(json!({"choices":[{"delta":{"reasoning_content":"PRIVATE_REASONING"}}]}));
         normalize(json!({"choices":[{"delta":{"content":"PRIVATE_TEXT"}}]}));
+        normalize(json!({"choices":[{"delta":{"refusal":"PRIVATE_REFUSAL"}}]}));
         normalize(json!({"choices":[],"usage":{"prompt_tokens":8,"completion_tokens":3,"total_tokens":11}}));
         crate::audit::terminal(&context,200,"request body completed");
     }).with_subscriber(subscriber).await;

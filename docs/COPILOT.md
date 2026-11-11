@@ -23,6 +23,10 @@ copilot:
 
 The caller's credential must include the matching alias, `cloud_allowed: true`, and `allowed_routes: [copilot]`. Alias collisions with ordinary aliases or Codex are rejected. Copilot model aliases do not become generic route aliases.
 
+Native Copilot dispatch consumes one workload token-bucket admission after those grants and the configured endpoint are checked, before provider authentication or inference. A depleted bucket returns `429 rate_limit_exceeded`; ordinary pinned passthrough aliases retain their intentional exemption.
+
+Native inference has a 120-second attempt and total deadline by default. `class_timeout_budgets` overrides both for the authenticated workload class. Authentication/session refresh, response headers and body consumption count against the budget; the single unauthorized refresh/retry gets only the remaining total time and respects `min_retry_seconds`. For streaming requests, configured `first_output_seconds` includes authentication/header waiting and ignores heartbeats/usage-only events; `stream_idle_seconds` starts after meaningful text, reasoning, refusal or tool-argument output. Downstream pauses suspend progress clocks, never hard attempt/total deadlines. Pre-header timeouts return a redacted `504`; post-header timeouts terminate the body with a stable local error and release class capacity.
+
 ## Authentication
 
 Managed authentication uses GitHub's device flow:

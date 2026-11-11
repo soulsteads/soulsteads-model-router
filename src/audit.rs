@@ -441,7 +441,7 @@ pub(crate) fn meaningful(value: &Value, responses: bool) -> Option<&'static str>
         .iter()
         .find_map(|choice| {
             let delta = choice.get("delta")?;
-            if nonempty(delta.get("content")) {
+            if nonempty(delta.get("content")) || nonempty(delta.get("refusal")) {
                 Some("text")
             } else if nonempty(delta.get("reasoning")) || nonempty(delta.get("reasoning_content")) {
                 Some("reasoning")

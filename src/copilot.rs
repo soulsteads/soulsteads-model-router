@@ -1,11 +1,20 @@
 use super::*;
 use crate::config::{CopilotConfig, CopilotEndpoint, CopilotModel, Credential};
 use crate::copilot_auth::{API_VERSION, COPILOT_PLUGIN_VERSION, COPILOT_USER_AGENT};
-use futures_util::StreamExt;
 use reqwest::{Client, Url, redirect::Policy};
 use serde_json::Value;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::OwnedSemaphorePermit;
+
+#[path = "copilot_deadline.rs"]
+mod deadline;
+
+#[path = "copilot_stream.rs"]
+mod stream;
+
+#[cfg(test)]
+#[path = "copilot_timeout_tests.rs"]
+mod timeout_tests;
 
 pub(crate) fn eligible(credential: &Credential, config: &CopilotConfig) -> bool {
     config.enabled
@@ -120,20 +129,21 @@ fn response_header_allowed(name: &reqwest::header::HeaderName) -> bool {
         || name == reqwest::header::HeaderName::from_static("x-github-request-id")
 }
 
-fn stream_response(upstream: reqwest::Response, class_permit: OwnedSemaphorePermit) -> Response {
+fn stream_response(
+    upstream: reqwest::Response,
+    class_permit: OwnedSemaphorePermit,
+    clock: crate::sse::ProgressClock,
+    endpoint: CopilotEndpoint,
+) -> Response {
     let status = upstream.status();
     let headers = upstream.headers().clone();
-    let stream = async_stream::stream! {
-        let _class_permit = class_permit;
-        let mut body = upstream.bytes_stream();
-        while let Some(chunk) = body.next().await {
-            match chunk {
-                Ok(bytes) => yield Ok::<_, std::io::Error>(bytes),
-                Err(_) => yield Err(std::io::Error::other("Copilot response stream failed")),
-            }
-        }
-    };
-    let mut response = Response::new(Body::from_stream(stream));
+    let sse = clock.tracks_progress()
+        && headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.starts_with("text/event-stream"));
+    let body = stream::forward(upstream, class_permit, clock, endpoint, sse);
+    let mut response = Response::new(Body::from_stream(body));
     *response.status_mut() = status;
     for (name, value) in headers {
         if let Some(name) = name
@@ -164,7 +174,10 @@ pub(crate) async fn forward(
         class_permit,
     )
     .await;
-    if response.status() == StatusCode::BAD_GATEWAY {
+    if matches!(
+        response.status(),
+        StatusCode::BAD_GATEWAY | StatusCode::GATEWAY_TIMEOUT
+    ) {
         upstream_errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
     response
@@ -238,26 +251,14 @@ async fn forward_inner(
             );
         }
     };
-    let authenticated = match crate::copilot_auth::session_for_config(config).await {
-        Ok(session) => session,
-        Err(_) => {
-            return json_error(
-                StatusCode::BAD_GATEWAY,
-                "upstream_auth_error",
-                "Copilot authentication is unavailable",
-            );
-        }
-    };
-    let url = match inference_url(&authenticated.session.api_endpoint, endpoint) {
-        Ok(url) => url,
-        Err(_) => {
-            return json_error(
-                StatusCode::BAD_GATEWAY,
-                "upstream_error",
-                "Copilot inference failed",
-            );
-        }
-    };
+    let budget = deadline::Budget::new(
+        runtime
+            .policy
+            .config
+            .class_timeout_budgets
+            .get(&credential.class),
+        request.get("stream").and_then(Value::as_bool) == Some(true),
+    );
     let client = match inference_client() {
         Ok(client) => client,
         Err(_) => {
@@ -268,58 +269,79 @@ async fn forward_inner(
             );
         }
     };
-    let first = send_request(&client, url.clone(), &body, &authenticated.session.bearer).await;
-    let upstream = match first {
-        Ok(response) if response.status() == StatusCode::UNAUTHORIZED => {
-            crate::copilot_auth::invalidate_session(
-                &authenticated.oauth_token,
-                &authenticated.session.bearer,
-            )
-            .await;
-            let refreshed = match crate::copilot_auth::session_for_config(config).await {
-                Ok(session) => session,
-                Err(_) => {
+    let mut retry = false;
+    loop {
+        let clock = match budget.start_attempt(retry) {
+            Ok(clock) => clock,
+            Err(category) => return timeout_response(category),
+        };
+        let authenticated =
+            match deadline::wait(&clock, crate::copilot_auth::session_for_config(config)).await {
+                Ok(Ok(session)) => session,
+                Ok(Err(_)) => {
                     return json_error(
                         StatusCode::BAD_GATEWAY,
                         "upstream_auth_error",
                         "Copilot authentication is unavailable",
                     );
                 }
+                Err(category) => return timeout_response(category),
             };
-            let retry_url = match inference_url(&refreshed.session.api_endpoint, endpoint) {
-                Ok(url) => url,
-                Err(_) => {
-                    return json_error(
-                        StatusCode::BAD_GATEWAY,
-                        "upstream_error",
-                        "Copilot inference failed",
-                    );
-                }
-            };
-            match send_request(&client, retry_url, &body, &refreshed.session.bearer).await {
-                Ok(response) => response,
-                Err(_) => {
-                    return json_error(
-                        StatusCode::BAD_GATEWAY,
-                        "upstream_error",
-                        "Copilot inference failed",
-                    );
-                }
+        let url = match inference_url(&authenticated.session.api_endpoint, endpoint) {
+            Ok(url) => url,
+            Err(_) => {
+                return json_error(
+                    StatusCode::BAD_GATEWAY,
+                    "upstream_error",
+                    "Copilot inference failed",
+                );
             }
+        };
+        let upstream = match deadline::wait(
+            &clock,
+            send_request(&client, url, &body, &authenticated.session.bearer),
+        )
+        .await
+        {
+            Ok(Ok(response)) => response,
+            Ok(Err(_)) => {
+                return json_error(
+                    StatusCode::BAD_GATEWAY,
+                    "upstream_error",
+                    "Copilot inference failed",
+                );
+            }
+            Err(category) => return timeout_response(category),
+        };
+        if upstream.status() == StatusCode::UNAUTHORIZED && !retry {
+            drop(upstream);
+            if let Err(category) = deadline::wait(
+                &clock,
+                crate::copilot_auth::invalidate_session(
+                    &authenticated.oauth_token,
+                    &authenticated.session.bearer,
+                ),
+            )
+            .await
+            {
+                return timeout_response(category);
+            }
+            retry = true;
+            continue;
         }
-        Ok(response) => response,
-        Err(_) => {
-            return json_error(
-                StatusCode::BAD_GATEWAY,
-                "upstream_error",
-                "Copilot inference failed",
-            );
+        if !upstream.status().is_success() {
+            return provider_error(upstream.status());
         }
-    };
-    if !upstream.status().is_success() {
-        return provider_error(upstream.status());
+        return stream_response(upstream, class_permit, clock, endpoint);
     }
-    stream_response(upstream, class_permit)
+}
+
+fn timeout_response(category: &'static str) -> Response {
+    json_error(
+        StatusCode::GATEWAY_TIMEOUT,
+        category,
+        "Copilot request deadline exceeded",
+    )
 }
 
 #[cfg(test)]
@@ -429,7 +451,14 @@ mod tests {
             .unwrap();
         let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
         let permit = semaphore.clone().acquire_owned().await.unwrap();
-        let response = stream_response(upstream, permit);
+        let response = stream_response(
+            upstream,
+            permit,
+            deadline::Budget::new(None, true)
+                .start_attempt(false)
+                .unwrap(),
+            CopilotEndpoint::ChatCompletions,
+        );
         assert_eq!(semaphore.available_permits(), 0);
         drop(response);
         assert_eq!(semaphore.available_permits(), 1);
