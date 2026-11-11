@@ -86,6 +86,12 @@ fn tool_sse(empty_terminal: bool) -> String {
 
 type RecordedRequest = (String, HeaderMap, Vec<u8>);
 
+#[derive(Default)]
+struct LoginGates {
+    entered: [tokio::sync::Notify; 3],
+    resume: [tokio::sync::Notify; 3],
+}
+
 struct FakeState {
     requests: Mutex<Vec<RecordedRequest>>,
     polls: AtomicU64,
@@ -96,6 +102,7 @@ struct FakeState {
     redirect: Mutex<String>,
     sse: Mutex<String>,
     hang: AtomicBool,
+    login_gates: Mutex<Option<Arc<LoginGates>>>,
 }
 
 struct Fake {
@@ -121,6 +128,7 @@ async fn fake() -> Fake {
         redirect: Mutex::new("/should-never-follow".into()),
         sse: Mutex::new(text_sse()),
         hang: AtomicBool::new(false),
+        login_gates: Mutex::new(None),
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
@@ -145,6 +153,19 @@ async fn fake_handler(
         .lock()
         .unwrap()
         .push((path.into(), headers.clone(), bytes.to_vec()));
+    let login_gates = state.login_gates.lock().unwrap().clone();
+    if let Some(gates) = login_gates {
+        let stage = match path {
+            "/api/accounts/deviceauth/usercode" => Some(0),
+            "/api/accounts/deviceauth/token" => Some(1),
+            "/oauth/token" => Some(2),
+            _ => None,
+        };
+        if let Some(stage) = stage {
+            gates.entered[stage].notify_one();
+            gates.resume[stage].notified().await;
+        }
+    }
     let mode = state.auth_mode.load(Ordering::Relaxed);
     match path {
         "/api/accounts/deviceauth/usercode" => {
@@ -921,7 +942,76 @@ async fn codex_inprocess_handlers_enforce_permissions_without_network_or_account
 }
 
 #[tokio::test]
-async fn codex_oauth_expiry_and_cross_origin_redirects_are_fail_closed() {
+async fn codex_interactive_login_keeps_account_access_available_until_commit() {
+    let fake = fake().await;
+    let gates = Arc::new(LoginGates::default());
+    *fake.state.login_gates.lock().unwrap() = Some(gates.clone());
+    let fixture = fixture(&fake, Some(true), true);
+    let store = codex_auth::Store::open(Path::new(fixture.config.account_file.as_deref().unwrap()))
+        .unwrap();
+    let mut previous = account();
+    previous.access_token = "synthetic-existing-access-NOT-A-REAL-TOKEN".into();
+    store.write(&previous).unwrap();
+    let config = fixture.config.clone();
+    let mut login = tokio::spawn(async move {
+        codex_auth::login_for(&config, |_, _| {}, Duration::from_secs(30)).await
+    });
+
+    for stage in 0..3 {
+        tokio::time::timeout(Duration::from_secs(2), gates.entered[stage].notified())
+            .await
+            .expect("login must reach the gated device-flow request");
+        let current =
+            tokio::time::timeout(Duration::from_secs(2), codex_auth::access(&fixture.config))
+                .await
+                .expect("interactive login must not block existing account access")
+                .unwrap();
+        assert_eq!(current.access_token, previous.access_token);
+        if stage < 2 {
+            gates.resume[stage].notify_one();
+        }
+    }
+
+    // Token exchange is still waiting: only the final credential commit may lock.
+    use std::os::fd::AsRawFd;
+    let guard = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(format!(
+            "{}.lock",
+            fixture.config.account_file.as_deref().unwrap()
+        ))
+        .unwrap();
+    assert_eq!(
+        unsafe { libc::flock(guard.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) },
+        0,
+        "the account lock must remain free during token exchange"
+    );
+    gates.resume[2].notify_one();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(100), &mut login)
+            .await
+            .is_err(),
+        "login must acquire the account lock before committing credentials"
+    );
+    assert_eq!(store.read().unwrap().access_token, previous.access_token);
+    drop(guard);
+    tokio::time::timeout(Duration::from_secs(2), login)
+        .await
+        .expect("login must finish after the account lock is released")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        codex_auth::access(&fixture.config)
+            .await
+            .unwrap()
+            .access_token,
+        "synthetic-rotated-access"
+    );
+}
+
+#[tokio::test]
+async fn codex_auth_expiry_and_cross_origin_signin_redirects_are_fail_closed() {
     let destination = fake().await;
     let fake = fake().await;
     let fixture = fixture(&fake, Some(true), true);
