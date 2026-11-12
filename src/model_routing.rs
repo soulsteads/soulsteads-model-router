@@ -314,7 +314,7 @@ async fn decide(
     );
     let (idx, permit, result) = tokio::time::timeout(
         Duration::from_secs(policy.decision_timeout_seconds),
-        inference,
+        crate::audit::without_request_accounting(inference),
     )
     .await
     .map_err(|_| failure(StatusCode::GATEWAY_TIMEOUT, "decision_timeout"))?

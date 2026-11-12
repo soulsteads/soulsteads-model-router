@@ -206,6 +206,21 @@ pub(crate) struct RequestAudit {
 }
 pub(crate) type Context = Arc<Mutex<RequestAudit>>;
 tokio::task_local! { pub(crate) static CURRENT: Context; }
+tokio::task_local! { static INTERNAL_INFERENCE: (); }
+
+pub(crate) async fn without_request_accounting<T>(
+    inference: impl std::future::Future<Output = T>,
+) -> T {
+    INTERNAL_INFERENCE.scope((), inference).await
+}
+
+fn request_context() -> Option<Context> {
+    if INTERNAL_INFERENCE.try_with(|_| ()).is_ok() {
+        return None;
+    }
+    CURRENT.try_with(Clone::clone).ok()
+}
+
 pub(crate) fn context(started: Instant, endpoint: &'static str) -> Context {
     Arc::new(Mutex::new(RequestAudit {
         started,
@@ -225,8 +240,9 @@ pub(crate) fn context(started: Instant, endpoint: &'static str) -> Context {
     }))
 }
 fn current(update: impl FnOnce(&mut RequestAudit)) {
-    let _ = CURRENT
-        .try_with(|context| update(&mut context.lock().unwrap_or_else(|error| error.into_inner())));
+    if let Some(context) = request_context() {
+        update(&mut context.lock().unwrap_or_else(|error| error.into_inner()));
+    }
 }
 pub(crate) fn bind(runtime: &Arc<Runtime>) {
     current(|request| {
@@ -270,16 +286,13 @@ pub(crate) fn passthrough(runtime: &Arc<Runtime>, idx: usize) {
     });
 }
 pub(crate) fn passthrough_target() -> Option<(Arc<Runtime>, usize)> {
-    CURRENT
-        .try_with(|context| {
-            context
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .passthrough_target
-                .clone()
-        })
-        .ok()
-        .flatten()
+    request_context().and_then(|context| {
+        context
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .passthrough_target
+            .clone()
+    })
 }
 pub(crate) struct Attempt<'runtime> {
     runtime: &'runtime Runtime,
@@ -291,7 +304,7 @@ pub(crate) struct Attempt<'runtime> {
 }
 impl<'runtime> Attempt<'runtime> {
     pub(crate) fn new(runtime: &'runtime Runtime, idx: usize) -> Self {
-        let context = CURRENT.try_with(Clone::clone).ok();
+        let context = request_context();
         let number = if let Some(context) = &context {
             let mut request = context.lock().unwrap_or_else(|error| error.into_inner());
             request.attempts = request.attempts.saturating_add(1);

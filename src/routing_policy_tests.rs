@@ -19,6 +19,9 @@ use std::{
 };
 use tower::ServiceExt;
 
+#[path = "routing_policy_audit_tests.rs"]
+mod audit_tests;
+
 const WORKLOAD_KEY: &str = "routing-policy-fixture-workload-key-0123456789";
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -41,6 +44,10 @@ struct UpstreamState {
     target_calls: AtomicUsize,
     decision_reply: Mutex<DecisionReply>,
     decision_target: Mutex<String>,
+    decision_usage: Mutex<Option<Value>>,
+    target_usage: Mutex<Option<Value>>,
+    decision_status: Mutex<Option<StatusCode>>,
+    failing_target: Mutex<Option<String>>,
 }
 
 struct Upstream {
@@ -92,6 +99,9 @@ async fn decision_handler(
         .push((uri.path().to_owned(), request.clone()));
     if request["max_tokens"] == 128 {
         state.decision_calls.fetch_add(1, AtomicOrdering::Relaxed);
+        if let Some(status) = *state.decision_status.lock().unwrap() {
+            return status.into_response();
+        }
         let reply = *state.decision_reply.lock().unwrap();
         let target = state.decision_target.lock().unwrap().clone();
         if reply == DecisionReply::Timeout {
@@ -117,13 +127,25 @@ async fn decision_handler(
             DecisionReply::UnknownTarget => ("{\"target\":\"unknown\"}".into(), "stop"),
             DecisionReply::Truncated => (format!("{{\"target\":\"{target}\"}}"), "length"),
         };
-        return axum::Json(json!({
+        let mut payload = json!({
             "model": request["model"],
             "choices": [{"message": {"content": content}, "finish_reason": finish_reason}]
-        }))
-        .into_response();
+        });
+        if let Some(usage) = state.decision_usage.lock().unwrap().clone() {
+            payload["usage"] = usage;
+        }
+        return axum::Json(payload).into_response();
     }
     state.target_calls.fetch_add(1, AtomicOrdering::Relaxed);
+    if state
+        .failing_target
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|model| request["model"] == *model)
+    {
+        return StatusCode::BAD_GATEWAY.into_response();
+    }
     if request["stream"] == true {
         let event = if uri.path().ends_with("/responses") {
             format!(
@@ -163,11 +185,14 @@ async fn decision_handler(
         }))
         .into_response();
     }
-    axum::Json(json!({
+    let mut payload = json!({
         "model": request["model"],
         "choices": [{"message": {"content": "target served"}}]
-    }))
-    .into_response()
+    });
+    if let Some(usage) = state.target_usage.lock().unwrap().clone() {
+        payload["usage"] = usage;
+    }
+    axum::Json(payload).into_response()
 }
 
 struct Fixture {
