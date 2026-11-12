@@ -130,6 +130,9 @@ const MAX_AFFINITY_LEASES: usize = 4096;
 // and configuration keep every indexed observation, counter, lease and shared
 // physical semaphore meaningful while older generations drain.
 fn validate_reload(current: &Policy, candidate: &Policy) -> Result<(), String> {
+    if current.config.routing_policies != candidate.config.routing_policies {
+        return Err("routing policy authority cannot change on reload; restart required".into());
+    }
     if current.config.codex != candidate.config.codex {
         return Err("Codex authority cannot change on reload; restart required".into());
     }
@@ -483,6 +486,58 @@ async fn models(State(runtime): State<Arc<Runtime>>, headers: HeaderMap) -> Resp
             models.push(json!({"id":name,"object":"model","created":0,"owned_by":"slotline","context_length":alias.context_limit,"model_info":{"mode":mode,"max_input_tokens":alias.context_limit,"max_total_tokens":alias.context_limit}}));
         }
     }
+    for (name, policy) in &runtime.policy.config.routing_policies {
+        let target_is_usable = |target: &str| {
+            [
+                config::RoutingEndpoint::Chat,
+                config::RoutingEndpoint::Responses,
+            ]
+            .into_iter()
+            .any(|endpoint| {
+                model_routing::target_usable(&runtime, &credential.config, target, endpoint)
+            })
+        };
+        let rule_is_usable = |rule: &config::RoutingRule| {
+            (rule.predicate.credential_classes.is_empty()
+                || rule
+                    .predicate
+                    .credential_classes
+                    .contains(&credential.config.class))
+                && (if rule.predicate.endpoints.is_empty() {
+                    target_is_usable(&rule.target)
+                } else {
+                    rule.predicate.endpoints.iter().copied().any(|endpoint| {
+                        model_routing::target_usable(
+                            &runtime,
+                            &credential.config,
+                            &rule.target,
+                            endpoint,
+                        )
+                    })
+                })
+        };
+        let unmatched_is_usable = if let Some(judge) = &policy.decision_model {
+            model_routing::target_usable(
+                &runtime,
+                &credential.config,
+                judge,
+                config::RoutingEndpoint::Chat,
+            ) && policy
+                .decision_targets
+                .iter()
+                .any(|target| target_is_usable(target))
+        } else {
+            policy
+                .default_target
+                .as_deref()
+                .is_some_and(target_is_usable)
+        };
+        if credential.aliases.contains(name)
+            && (policy.rules.iter().any(rule_is_usable) || unmatched_is_usable)
+        {
+            models.push(json!({"id":name,"object":"model","created":0,"owned_by":"slotline-routing","model_info":{"mode":"routing"}}));
+        }
+    }
     if copilot::eligible(&credential, &runtime.policy.config.copilot) {
         for model in &runtime.policy.config.copilot.models {
             if credential.aliases.contains(&model.alias) {
@@ -514,6 +569,8 @@ async fn models(State(runtime): State<Arc<Runtime>>, headers: HeaderMap) -> Resp
     response
 }
 
+mod model_routing;
+use model_routing::policy_target;
 mod routing;
 use routing::*;
 
@@ -665,6 +722,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 mod codex_integration_tests;
 #[cfg(test)]
 mod codex_tests;
+#[cfg(test)]
+mod routing_policy_tests;
 
 #[cfg(test)]
 mod tests;

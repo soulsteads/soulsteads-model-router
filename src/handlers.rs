@@ -36,7 +36,7 @@ pub(super) async fn chat(
         Ok(v) => v,
         Err(_) => return json_error(StatusCode::BAD_REQUEST, "invalid_json", "Invalid JSON"),
     };
-    let alias_name = match request.get("model").and_then(Value::as_str) {
+    let mut alias_name = match request.get("model").and_then(Value::as_str) {
         Some(x) => x.to_owned(),
         None => return json_error(StatusCode::BAD_REQUEST, "invalid_model", "Missing model"),
     };
@@ -48,6 +48,22 @@ pub(super) async fn chat(
             "Model is not authorized",
         );
     }
+    if let Some(target) = match policy_target(
+        &runtime,
+        &credential,
+        &alias_name,
+        config::RoutingEndpoint::Chat,
+        &request,
+        body.len(),
+    )
+    .await
+    {
+        Ok(target) => target,
+        Err(error) => return error,
+    } {
+        alias_name = target;
+        request["model"] = Value::String(alias_name.clone());
+    }
     if let Some(endpoint) = runtime
         .policy
         .config
@@ -55,6 +71,13 @@ pub(super) async fn chat(
         .model_for_alias(&alias_name)
         .map(|model| model.endpoint)
     {
+        if !copilot::eligible(&credential, &runtime.policy.config.copilot) {
+            return json_error(
+                StatusCode::FORBIDDEN,
+                "cloud_not_allowed",
+                "Copilot requires explicit workload, model and route permission",
+            );
+        }
         return copilot::forward(
             runtime,
             credential,
@@ -66,6 +89,13 @@ pub(super) async fn chat(
         .await;
     }
     if runtime.policy.config.codex.alias.as_ref() == Some(&alias_name) {
+        if !codex::eligible(&credential, &runtime.policy.config.codex) {
+            return json_error(
+                StatusCode::FORBIDDEN,
+                "cloud_not_allowed",
+                "Codex requires explicit workload, model and route permission",
+            );
+        }
         return codex::forward(runtime, credential, headers, request, true, class_permit).await;
     }
     let alias = match runtime.policy.config.aliases.get(&alias_name) {
@@ -228,7 +258,7 @@ pub(super) async fn responses(
         Ok(value) => value,
         Err(_) => return json_error(StatusCode::BAD_REQUEST, "invalid_json", "Invalid JSON"),
     };
-    let alias_name = match request.get("model").and_then(Value::as_str) {
+    let mut alias_name = match request.get("model").and_then(Value::as_str) {
         Some(value) => value.to_owned(),
         None => return json_error(StatusCode::BAD_REQUEST, "invalid_model", "Missing model"),
     };
@@ -240,7 +270,56 @@ pub(super) async fn responses(
             "Model is not authorized",
         );
     }
+    if let Some(target) = match policy_target(
+        &runtime,
+        &credential,
+        &alias_name,
+        config::RoutingEndpoint::Responses,
+        &request,
+        body.len(),
+    )
+    .await
+    {
+        Ok(target) => target,
+        Err(error) => return error,
+    } {
+        alias_name = target;
+        request["model"] = Value::String(alias_name.clone());
+    }
+    if let Some(endpoint) = runtime
+        .policy
+        .config
+        .copilot
+        .model_for_alias(&alias_name)
+        .map(|model| model.endpoint)
+    {
+        if endpoint != config::CopilotEndpoint::Responses
+            || !copilot::eligible(&credential, &runtime.policy.config.copilot)
+        {
+            return json_error(
+                StatusCode::FORBIDDEN,
+                "cloud_not_allowed",
+                "Copilot requires explicit workload, model and route permission",
+            );
+        }
+        return copilot::forward(
+            runtime,
+            credential,
+            headers,
+            request,
+            endpoint,
+            class_permit,
+        )
+        .await;
+    }
     if runtime.policy.config.codex.alias.as_ref() == Some(&alias_name) {
+        if !codex::eligible(&credential, &runtime.policy.config.codex) {
+            return json_error(
+                StatusCode::FORBIDDEN,
+                "cloud_not_allowed",
+                "Codex requires explicit workload, model and route permission",
+            );
+        }
         return codex::forward(runtime, credential, headers, request, false, class_permit).await;
     }
     let Some(alias) = runtime.policy.config.aliases.get(&alias_name) else {
