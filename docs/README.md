@@ -15,6 +15,9 @@ installation. The gateway still builds as `slotline`.
 
 ## Operators
 
+- [Rules and decision-model routing](ROUTING.md): explicit local/cloud selection,
+  bounded local judges, permissions and failure behavior.
+
 - [Key management](../KEYS.md): verifier store, issuance, rotation, revocation,
   acknowledgments, and backup/restore.
 - [Request audit](request-audit.md): fields, metrics, measurement boundaries,

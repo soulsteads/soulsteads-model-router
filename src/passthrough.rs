@@ -215,6 +215,17 @@ pub(crate) async fn dispatch(runtime: Arc<Runtime>, req: Request, endpoint: &str
             ),
         };
     }
+    if runtime.policy.config.routing_policies.contains_key(&name) {
+        return match endpoint {
+            "/chat/completions" => handlers::chat(State(runtime), headers, body).await,
+            "/responses" => handlers::responses(State(runtime), headers, body).await,
+            _ => json_error(
+                StatusCode::BAD_REQUEST,
+                "wrong_endpoint",
+                "Routing policies require a chat endpoint",
+            ),
+        };
+    }
     let Some(alias) = runtime.policy.config.aliases.get(&name) else {
         return json_error(
             StatusCode::NOT_FOUND,

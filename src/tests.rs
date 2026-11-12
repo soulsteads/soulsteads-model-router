@@ -1,6 +1,96 @@
 use super::*;
 use serde_json::json;
 
+#[tokio::test]
+async fn routing_decision_runs_before_target_under_one_class_permit() {
+    let (dir, app) = capacity_test_app();
+    drop(app);
+    let calls = Arc::new(AtomicU64::new(0));
+    let counter = calls.clone();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let router = Router::new().fallback(post(move |axum::Json(value): axum::Json<Value>| {
+        let counter = counter.clone();
+        async move {
+            let call = counter.fetch_add(1, Ordering::Relaxed);
+            if call == 0 {
+                assert_eq!(value["stream"], false);
+                assert_eq!(value["max_tokens"], 128);
+            }
+            axum::Json(json!({"model":"qwen38","choices":[{"index":0,"finish_reason":"stop","message":{"role":"assistant","content":if call == 0 {"{\"target\":\"qwen38\"}"} else {"routed answer"}}}]}))
+        }
+    }));
+    let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    let path = dir.path().join("policy.yaml");
+    let source = fs::read_to_string(&path)
+        .unwrap()
+        .replace(
+            "aliases: [qwen38]",
+            "aliases: [smart, qwen38], max_in_flight: 1",
+        )
+        .replace("127.0.0.1:18104", &address.to_string())
+        .replace("127.0.0.1:18105", &address.to_string())
+        + "\nrouting_policies:\n  smart:\n    decision_model: qwen38\n    decision_targets: [qwen38]\n";
+    fs::write(&path, source).unwrap();
+    let runtime = make_runtime(config::load(&path).unwrap(), None).unwrap();
+    for observation in runtime.observations.lock().unwrap().iter_mut() {
+        observation.status = RouteStatus::Serving;
+        observation.checked = Some(Instant::now());
+        observation.qualified = Some(Instant::now());
+    }
+    let mut request = axum::extract::Request::new(Body::from(
+        json!({"model":"smart","messages":[{"role":"user","content":"hello"}],"max_tokens":16})
+            .to_string(),
+    ));
+    request.headers_mut().insert(
+        header::AUTHORIZATION,
+        HeaderValue::from_static("Bearer local-test-operator-key-1234567890"),
+    );
+    let response = passthrough::dispatch(runtime.clone(), request, "/chat/completions").await;
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    server.abort();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&bytes)
+    );
+    assert_eq!(calls.load(Ordering::Relaxed), 2);
+    let state = runtime.auth.read().unwrap().credentials["operator"].clone();
+    assert_eq!(state.class_semaphore.available_permits(), 1);
+    assert!(state.rate.lock().unwrap().tokens > 8.9);
+}
+
+#[test]
+fn routing_identity_tracks_decision_targets_timeout_and_hashed_guidance() {
+    let (_dir, app) = capacity_test_app();
+    let mut config = app.current().policy.config.clone();
+    config.routing_policies.insert(
+        "smart".into(),
+        serde_json::from_value(json!({"decision_model":"qwen38","decision_targets":["qwen38"]}))
+            .unwrap(),
+    );
+    let original = audit_identity::digest(&config);
+    for field in ["targets", "timeout", "guidance"] {
+        let mut changed = config.clone();
+        let policy = changed.routing_policies.get_mut("smart").unwrap();
+        match field {
+            "targets" => policy.decision_targets.push("other".into()),
+            "timeout" => policy.decision_timeout_seconds = 1,
+            _ => policy.decision_prompt = "PRIVATE_GUIDANCE".into(),
+        }
+        assert_ne!(original, audit_identity::digest(&changed), "{field}");
+        assert!(
+            !audit_identity::projection(&changed)
+                .to_string()
+                .contains("PRIVATE_GUIDANCE")
+        );
+    }
+}
+
 #[test]
 fn audit_identity_is_source_and_effective_policy_not_version_or_secrets() {
     let (_dir, app) = capacity_test_app();

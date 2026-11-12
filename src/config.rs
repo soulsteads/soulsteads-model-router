@@ -32,6 +32,8 @@ pub struct Config {
     pub routes: Vec<Route>,
     pub aliases: HashMap<String, Alias>,
     #[serde(default)]
+    pub routing_policies: HashMap<String, RoutingPolicy>,
+    #[serde(default)]
     pub class_timeout_budgets: HashMap<String, ClassTimeoutBudget>,
     #[serde(default)]
     pub retry_policy: RetryPolicy,
@@ -764,6 +766,114 @@ pub struct Alias {
     pub streaming: bool,
 }
 
+#[derive(Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RoutingPolicy {
+    #[serde(default)]
+    pub rules: Vec<RoutingRule>,
+    #[serde(default)]
+    pub decision_model: Option<String>,
+    #[serde(default)]
+    pub decision_targets: Vec<String>,
+    #[serde(default = "default_decision_timeout")]
+    pub decision_timeout_seconds: u64,
+    #[serde(default)]
+    pub decision_prompt: String,
+    #[serde(default)]
+    pub default_target: Option<String>,
+}
+
+fn default_decision_timeout() -> u64 {
+    10
+}
+
+#[derive(Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RoutingRule {
+    pub id: String,
+    pub target: String,
+    #[serde(rename = "when")]
+    pub predicate: RoutingPredicate,
+}
+
+#[derive(Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RoutingPredicate {
+    #[serde(default)]
+    pub credential_classes: Vec<String>,
+    #[serde(default)]
+    pub endpoints: Vec<RoutingEndpoint>,
+    #[serde(default)]
+    pub stream: Option<bool>,
+    #[serde(default)]
+    pub tools: Option<bool>,
+    #[serde(default)]
+    pub image: Option<bool>,
+    #[serde(default)]
+    pub min_input_bytes: Option<usize>,
+    #[serde(default)]
+    pub max_input_bytes: Option<usize>,
+}
+
+#[derive(Clone, Copy, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingEndpoint {
+    Chat,
+    Responses,
+}
+
+#[derive(Clone, Copy)]
+pub struct RoutingRequestShape {
+    pub endpoint: RoutingEndpoint,
+    pub stream: bool,
+    pub tools: bool,
+    pub image: bool,
+    pub input_bytes: usize,
+}
+
+impl RoutingPredicate {
+    pub fn matches(&self, credential_class: &str, request: RoutingRequestShape) -> bool {
+        (self.credential_classes.is_empty()
+            || self
+                .credential_classes
+                .iter()
+                .any(|class| class == credential_class))
+            && (self.endpoints.is_empty() || self.endpoints.contains(&request.endpoint))
+            && self.stream.is_none_or(|value| value == request.stream)
+            && self.tools.is_none_or(|value| value == request.tools)
+            && self.image.is_none_or(|value| value == request.image)
+            && self
+                .min_input_bytes
+                .is_none_or(|minimum| request.input_bytes >= minimum)
+            && self
+                .max_input_bytes
+                .is_none_or(|maximum| request.input_bytes <= maximum)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.credential_classes.is_empty()
+            && self.endpoints.is_empty()
+            && self.stream.is_none()
+            && self.tools.is_none()
+            && self.image.is_none()
+            && self.min_input_bytes.is_none()
+            && self.max_input_bytes.is_none()
+    }
+}
+
+impl RoutingPolicy {
+    pub fn rule_target(
+        &self,
+        credential_class: &str,
+        request: RoutingRequestShape,
+    ) -> Option<&str> {
+        self.rules
+            .iter()
+            .find(|rule| rule.predicate.matches(credential_class, request))
+            .map(|rule| rule.target.as_str())
+    }
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TokenizerSpec {
@@ -864,6 +974,7 @@ pub fn key_credentials_from_snapshot(
     for credential in &credentials {
         if credential.aliases.iter().any(|alias| {
             !config.aliases.contains_key(alias)
+                && !config.routing_policies.contains_key(alias)
                 && config.codex.alias.as_deref() != Some(alias.as_str())
                 && !config
                     .copilot
@@ -892,6 +1003,9 @@ pub fn key_credentials_from_snapshot(
                         .any(|model| model.alias == *name)
                     {
                         return !allowed.contains(&"copilot".to_string());
+                    }
+                    if config.routing_policies.contains_key(name) {
+                        return false;
                     }
                     !config.aliases[name].routes.iter().any(|entry| {
                         entry.enabled
@@ -951,6 +1065,102 @@ fn read_key(path: &str) -> Result<Vec<u8>, String> {
         return Err("credential length outside 24..4096".into());
     }
     Ok(key)
+}
+
+fn concrete_routing_target(config: &Config, target: &str) -> bool {
+    config
+        .aliases
+        .get(target)
+        .is_some_and(|alias| alias.endpoint == Endpoint::Chat && alias.passthrough_route.is_none())
+        || config.codex.alias.as_deref() == Some(target)
+        || config.copilot.model_for_alias(target).is_some()
+}
+
+fn validate_routing_policies(config: &Config, alias_name_re: &Regex) -> Result<(), String> {
+    if config.routing_policies.len() > 128 {
+        return Err("too many routing policies".into());
+    }
+    for (name, policy) in &config.routing_policies {
+        let decision_targets: HashSet<_> = policy.decision_targets.iter().collect();
+        if policy.rules.len() > 128
+            || policy.decision_targets.len() > 16
+            || decision_targets.len() != policy.decision_targets.len()
+            || policy.decision_prompt.len() > 4096
+            || !(1..=30).contains(&policy.decision_timeout_seconds)
+            || policy
+                .decision_targets
+                .iter()
+                .any(|target| !concrete_routing_target(config, target))
+            || (policy.decision_model.is_some() && policy.decision_targets.is_empty())
+            || (policy.decision_model.is_none()
+                && (!policy.decision_targets.is_empty()
+                    || !policy.decision_prompt.is_empty()
+                    || policy.decision_timeout_seconds != default_decision_timeout()))
+        {
+            return Err(format!("invalid decision settings in {name}"));
+        }
+        if !alias_name_re.is_match(name)
+            || config.aliases.contains_key(name)
+            || config.codex.alias.as_deref() == Some(name)
+            || config.copilot.model_for_alias(name).is_some()
+        {
+            return Err(format!("invalid virtual routing alias {name}"));
+        }
+        if policy.rules.is_empty()
+            && policy.decision_model.is_none()
+            && policy.default_target.is_none()
+        {
+            return Err(format!("routing policy {name} has no selection"));
+        }
+        let mut ids = HashSet::new();
+        for rule in &policy.rules {
+            if rule.id.is_empty()
+                || rule.id.len() > 64
+                || rule.id.chars().any(char::is_control)
+                || !ids.insert(&rule.id)
+                || rule.predicate.is_empty()
+                || rule.predicate.credential_classes.len() > 64
+                || rule.predicate.credential_classes.iter().any(|class| {
+                    class.is_empty() || class.len() > 128 || class.chars().any(char::is_control)
+                })
+                || rule.predicate.endpoints.len() > 2
+                || rule
+                    .predicate
+                    .min_input_bytes
+                    .is_some_and(|n| n > 8 * 1024 * 1024)
+                || rule
+                    .predicate
+                    .max_input_bytes
+                    .is_some_and(|n| n > 8 * 1024 * 1024)
+                || rule
+                    .predicate
+                    .min_input_bytes
+                    .zip(rule.predicate.max_input_bytes)
+                    .is_some_and(|(minimum, maximum)| minimum > maximum)
+                || !concrete_routing_target(config, &rule.target)
+            {
+                return Err(format!("invalid routing rule in {name}"));
+            }
+        }
+        if let Some(target) = &policy.default_target
+            && !concrete_routing_target(config, target)
+        {
+            return Err(format!("invalid routing default target in {name}"));
+        }
+        if let Some(decision_model) = &policy.decision_model {
+            let Some(alias) = config.aliases.get(decision_model) else {
+                return Err(format!(
+                    "decision model for {name} must be a managed local chat alias"
+                ));
+            };
+            if alias.endpoint != Endpoint::Chat || alias.passthrough_route.is_some() {
+                return Err(format!(
+                    "decision model for {name} must be a managed local chat alias"
+                ));
+            }
+        }
+    }
+    Ok(())
 }
 
 pub fn load(path: &Path) -> Result<Policy, String> {
@@ -1209,6 +1419,7 @@ pub fn load(path: &Path) -> Result<Policy, String> {
             ));
         }
     }
+    validate_routing_policies(&config, &alias_name_re)?;
     let mut tokenizers = HashMap::new();
     let mut tokenizer_cache: HashMap<String, Arc<Tokenizer>> = HashMap::new();
     for (name, alias) in &config.aliases {
@@ -1242,6 +1453,7 @@ pub fn load(path: &Path) -> Result<Policy, String> {
         }
         if credential.aliases.iter().any(|a| {
             !config.aliases.contains_key(a)
+                && !config.routing_policies.contains_key(a)
                 && config.codex.alias.as_ref() != Some(a)
                 && !config.copilot.models.iter().any(|model| &model.alias == a)
         }) {
@@ -1266,6 +1478,9 @@ pub fn load(path: &Path) -> Result<Policy, String> {
                         .any(|model| model.alias == *name)
                     {
                         return !allowed.contains(&"copilot".to_string());
+                    }
+                    if config.routing_policies.contains_key(name) {
+                        return false;
                     }
                     !config.aliases[name].routes.iter().any(|entry| {
                         entry.enabled
@@ -1397,5 +1612,113 @@ copilot:
 "#;
         let parsed = serde_yaml::from_str::<Config>(yaml);
         assert!(parsed.is_ok(), "Copilot config must parse");
+    }
+}
+
+#[cfg(test)]
+mod routing_policy_tdd_tests {
+    use super::Config;
+
+    #[test]
+    fn decision_model_has_an_explicit_bounded_target_set() {
+        let parsed = serde_json::from_value::<super::RoutingPolicy>(serde_json::json!({
+            "decision_model": "local-judge",
+            "decision_targets": ["local-small", "cloud-large"],
+            "decision_timeout_seconds": 2,
+            "decision_prompt": "Prefer local for simple questions."
+        }));
+        assert!(parsed.is_ok(), "bounded decision configuration must parse");
+    }
+
+    #[test]
+    fn decision_configuration_rejects_missing_targets_and_orphan_settings() {
+        let base: Config = serde_json::from_value(serde_json::json!({
+            "bind":"100.127.255.254", "port":4000, "routes":[], "aliases": {
+                "judge": {"context_limit":1000,"routes":[],"capabilities":["text"]}
+            }
+        }))
+        .unwrap();
+        let name_re = regex::Regex::new("^[a-z]+$").unwrap();
+        for value in [
+            serde_json::json!({"decision_model":"judge"}),
+            serde_json::json!({"default_target":"judge","decision_targets":["judge"]}),
+            serde_json::json!({"decision_model":"judge","decision_targets":["judge"],"decision_timeout_seconds":0}),
+            serde_json::json!({"decision_model":"judge","decision_targets":["judge","judge"]}),
+        ] {
+            let mut config = base.clone();
+            config
+                .routing_policies
+                .insert("smart".into(), serde_json::from_value(value).unwrap());
+            assert!(super::validate_routing_policies(&config, &name_re).is_err());
+        }
+    }
+
+    #[test]
+    fn routing_policy_virtual_alias_accepts_an_ordered_local_target_rule() {
+        let config = serde_yaml::from_str::<Config>(
+            r#"
+bind: 100.127.255.254
+port: 4000
+credentials: []
+routes: []
+aliases: {}
+routing_policies:
+  smart:
+    rules:
+      - id: local-small
+        target: local-small
+        when:
+          credential_classes: [interactive]
+          endpoints: [chat]
+"#,
+        );
+        assert!(
+            config.is_ok(),
+            "routing policies must be part of the policy schema"
+        );
+    }
+
+    #[test]
+    fn routing_policy_uses_first_matching_rule_and_all_predicates() {
+        let policy: super::RoutingPolicy = serde_yaml::from_str(
+            r#"
+rules:
+  - id: local-stream
+    target: local-small
+    when:
+      credential_classes: [interactive]
+      endpoints: [chat]
+      stream: true
+      max_input_bytes: 100
+  - id: cloud-fallback
+    target: cloud
+    when:
+      credential_classes: [interactive]
+      endpoints: [chat]
+"#,
+        )
+        .unwrap();
+        let stream = super::RoutingRequestShape {
+            endpoint: super::RoutingEndpoint::Chat,
+            stream: true,
+            tools: false,
+            image: false,
+            input_bytes: 100,
+        };
+        assert_eq!(
+            policy.rule_target("interactive", stream),
+            Some("local-small")
+        );
+        assert_eq!(
+            policy.rule_target(
+                "interactive",
+                super::RoutingRequestShape {
+                    stream: false,
+                    ..stream
+                }
+            ),
+            Some("cloud")
+        );
+        assert_eq!(policy.rule_target("batch", stream), None);
     }
 }

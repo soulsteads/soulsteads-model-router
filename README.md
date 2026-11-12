@@ -38,6 +38,8 @@ Agents and OpenAI-compatible clients
   and more free slots. Adapters for one physical backend share its limit.
 - **Capability checks:** route supported tools, structured output, inline images,
   Responses, and embeddings only to eligible backends.
+- **Rules and local decision models:** opt-in [routing policies](docs/ROUTING.md)
+  choose among explicitly authorized local, Codex and Copilot aliases.
 - **Bounded retries:** retry eligible failures before response exposure, never
   replay a stream after handoff.
 - **Private credentials:** use protected key files or an Argon2id verifier store
