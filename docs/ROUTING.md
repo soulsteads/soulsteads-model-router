@@ -122,6 +122,10 @@ a model does not prove useful routing quality, latency or provider entitlement.
 
 ## Choosing cloud versus local: recommended qualification
 
+The [offline outcome evaluator](ADAPTIVE_ROUTING.md) can summarize reviewed
+model-version evidence. It is advisory and does not feed scores into live
+selection or change these routing policies automatically.
+
 Treat local/cloud as a placement choice, not a quality ranking. A particular
 local model may outperform a particular cloud model on a narrow task. Qualify
 exact model and backend versions against representative, sanitized tasks.
