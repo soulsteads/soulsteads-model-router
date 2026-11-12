@@ -1,3 +1,4 @@
+mod adaptive;
 mod audit;
 mod audit_identity;
 mod audit_sink;
@@ -611,6 +612,11 @@ async fn current_metrics(State(app): State<Arc<AppState>>, headers: HeaderMap) -
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "routing") {
+        adaptive::run_cli(&args[1..])?;
+        return Ok(());
+    }
     tracing_subscriber::fmt()
         .json()
         .event_format(audit_sink::formatter())
@@ -620,7 +626,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap_or_else(|_| "slotline=info".into()),
         )
         .init();
-    let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "codex") {
         return codex_auth::run(&args[1..]).await;
     }
@@ -718,6 +723,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(test)]
+mod adaptive_tests;
 #[cfg(test)]
 mod codex_integration_tests;
 #[cfg(test)]
