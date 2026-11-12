@@ -134,6 +134,7 @@ and create unapproved cost. Use sanitized, explicitly approved evaluation cases.
 
 Operational adaptation (capacity, availability and latency) remains distinct from
 quality learning. A busy local server or expired cloud credential does not teach
-that a model is semantically incapable. Cross-provider session pinning and full
-request-feasibility prefiltering are also separate work, not implied by this
-scorecard.
+that a model is semantically incapable. Cross-provider session pinning and native
+provider request-feasibility prefiltering remain separate work, not implied by
+this scorecard. Managed-local decision candidates have a static request-fit
+prefilter in the routing path; it does not consume scorecard results.

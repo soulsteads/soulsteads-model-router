@@ -49,6 +49,83 @@ pub(crate) fn target_usable(
         })
 }
 
+fn local_target_fits_request(
+    runtime: &Runtime,
+    credential: &config::Credential,
+    target: &str,
+    endpoint: config::RoutingEndpoint,
+    normalized_request: &Value,
+) -> bool {
+    let Some(alias) = runtime.policy.config.aliases.get(target) else {
+        // Native Codex and Copilot targets retain their established grant and
+        // endpoint preflight; this helper only filters managed local aliases.
+        return true;
+    };
+    let mut request = normalized_request.clone();
+    request["model"] = Value::String(target.to_owned());
+    let default_thinking = alias
+        .routes
+        .iter()
+        .filter(|entry| entry.enabled)
+        .filter_map(|entry| {
+            runtime
+                .policy
+                .routes
+                .iter()
+                .find(|route| route.config.name == entry.route)
+        })
+        .any(|route| route.config.enabled && !route.config.disable_thinking);
+    let tokenizer = runtime
+        .policy
+        .tokenizers
+        .get(target)
+        .map(|tokenizer| tokenizer.as_ref());
+    let (stream, required_context, needs) = match endpoint {
+        config::RoutingEndpoint::Chat => {
+            let Ok((stream, _, required_context, needs)) =
+                validate_request(&request, alias, tokenizer, default_thinking)
+            else {
+                return false;
+            };
+            (stream, required_context, needs)
+        }
+        config::RoutingEndpoint::Responses => {
+            let Ok((
+                stream,
+                required_context,
+                needs_tools,
+                needs_responses_json_schema,
+                needs_responses_json_object,
+            )) = validate_responses_request(&request, alias, tokenizer, default_thinking)
+            else {
+                return false;
+            };
+            (
+                stream,
+                required_context,
+                RequestCapabilities {
+                    tools: needs_tools,
+                    responses: true,
+                    responses_json_schema: needs_responses_json_schema,
+                    responses_json_object: needs_responses_json_object,
+                    ..Default::default()
+                },
+            )
+        }
+    };
+    alias.routes.iter().any(|entry| {
+        entry.enabled
+            && (credential.allowed_routes.is_empty()
+                || credential.allowed_routes.contains(&entry.route))
+            && runtime.policy.routes.iter().any(|route| {
+                route.config.name == entry.route
+                    && route.config.enabled
+                    && required_context <= route.config.context_limit
+                    && routing::missing_capabilities(&route.config, stream, needs).is_empty()
+            })
+    })
+}
+
 fn failure(status: StatusCode, code: &'static str) -> Response {
     json_error(
         status,
@@ -183,6 +260,15 @@ async fn decide(
             StatusCode::PAYLOAD_TOO_LARGE,
             "decision_input_too_large",
         ));
+    }
+    let candidates: Vec<_> = candidates
+        .into_iter()
+        .filter(|target| {
+            local_target_fits_request(runtime, &credential.config, target, endpoint, request)
+        })
+        .collect();
+    if candidates.is_empty() {
+        return Err(failure(StatusCode::FORBIDDEN, "model_not_allowed"));
     }
     let alias = &runtime.policy.config.aliases[model];
     let judge_request = json!({

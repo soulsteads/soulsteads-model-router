@@ -3,7 +3,7 @@ use axum::{
     Router,
     body::Bytes,
     extract::State,
-    http::{Request, Uri, header},
+    http::{HeaderValue, Request, Uri, header},
     response::{IntoResponse, Response},
     routing::{get, post},
 };
@@ -11,7 +11,10 @@ use std::{
     fs,
     os::unix::fs::PermissionsExt,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering as AtomicOrdering},
+    },
     time::Instant,
 };
 use tower::ServiceExt;
@@ -34,6 +37,8 @@ enum DecisionReply {
 #[derive(Default)]
 struct UpstreamState {
     requests: Mutex<Vec<(String, Value)>>,
+    decision_calls: AtomicUsize,
+    target_calls: AtomicUsize,
     decision_reply: Mutex<DecisionReply>,
     decision_target: Mutex<String>,
 }
@@ -86,13 +91,14 @@ async fn decision_handler(
         .unwrap()
         .push((uri.path().to_owned(), request.clone()));
     if request["max_tokens"] == 128 {
+        state.decision_calls.fetch_add(1, AtomicOrdering::Relaxed);
         let reply = *state.decision_reply.lock().unwrap();
         let target = state.decision_target.lock().unwrap().clone();
         if reply == DecisionReply::Timeout {
             tokio::time::sleep(Duration::from_secs(3)).await;
         }
         if reply == DecisionReply::ToolCall {
-            return axum::Json(json!({"model":"shared-fixture","choices":[{"finish_reason":"stop","message":{"content":"{\"target\":\"target\"}","tool_calls":[{"id":"call-fixture","type":"function","function":{"name":"route","arguments":"{}"}}]}}]})).into_response();
+            return axum::Json(json!({"model":request["model"],"choices":[{"finish_reason":"stop","message":{"content":"{\"target\":\"target\"}","tool_calls":[{"id":"call-fixture","type":"function","function":{"name":"route","arguments":"{}"}}]}}]})).into_response();
         }
         let target = if target.is_empty() { "target" } else { &target };
         let (content, finish_reason) = match reply {
@@ -112,22 +118,53 @@ async fn decision_handler(
             DecisionReply::Truncated => (format!("{{\"target\":\"{target}\"}}"), "length"),
         };
         return axum::Json(json!({
-            "model": "shared-fixture",
+            "model": request["model"],
             "choices": [{"message": {"content": content}, "finish_reason": finish_reason}]
         }))
         .into_response();
     }
+    state.target_calls.fetch_add(1, AtomicOrdering::Relaxed);
+    if request["stream"] == true {
+        let event = if uri.path().ends_with("/responses") {
+            format!(
+                "event:response.completed\ndata:{}\n\n",
+                json!({
+                    "type":"response.completed",
+                    "response":{
+                        "object":"response",
+                        "model":request["model"],
+                        "status":"completed",
+                        "output":[]
+                    }
+                })
+            )
+        } else {
+            format!(
+                "data:{}\n\ndata:[DONE]\n\n",
+                json!({
+                    "model":request["model"],
+                    "choices":[{"delta":{"content":"target served"}}]
+                })
+            )
+        };
+        let mut response = Response::new(Body::from(event));
+        response.headers_mut().insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/event-stream"),
+        );
+        return response;
+    }
     if uri.path().ends_with("/responses") {
         return axum::Json(json!({
             "object": "response",
-            "model": "shared-fixture",
+            "model": request["model"],
             "status": "completed",
             "output": []
         }))
         .into_response();
     }
     axum::Json(json!({
-        "model": "shared-fixture",
+        "model": request["model"],
         "choices": [{"message": {"content": "target served"}}]
     }))
     .into_response()
@@ -196,6 +233,24 @@ fn fixture_with_policy_and_cloud_and_target_response_support(
     cloud_allowed: Option<bool>,
     target_supports_responses: bool,
 ) -> Fixture {
+    fixture_with_custom_config(
+        upstream,
+        routing_policy,
+        cloud_allowed,
+        target_supports_responses,
+        |_| {},
+        |_| {},
+    )
+}
+
+fn fixture_with_custom_config(
+    upstream: &Upstream,
+    routing_policy: Value,
+    cloud_allowed: Option<bool>,
+    target_supports_responses: bool,
+    configure: impl FnOnce(&mut Value),
+    adjust_loaded_policy: impl FnOnce(&mut config::Policy),
+) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
     let key = dir.path().join("workload.key");
@@ -261,9 +316,11 @@ fn fixture_with_policy_and_cloud_and_target_response_support(
             "account_file": dir.path().join("missing-account.json")
         });
     }
+    configure(&mut config);
     fs::write(&config_path, config.to_string()).unwrap();
-    let app =
-        Arc::new(AppState::new(config_path.clone(), config::load(&config_path).unwrap()).unwrap());
+    let mut policy = config::load(&config_path).unwrap();
+    adjust_loaded_policy(&mut policy);
+    let app = Arc::new(AppState::new(config_path.clone(), policy).unwrap());
     let runtime = app.current();
     for observation in runtime.observations.lock().unwrap().iter_mut() {
         observation.status = RouteStatus::Serving;
@@ -281,6 +338,96 @@ fn fixture_with_policy_and_cloud_and_target_response_support(
         app,
         router,
     }
+}
+
+fn fixture_with_locally_incompatible_candidate(
+    upstream: &Upstream,
+    routing_policy: Value,
+    weak_capabilities: Value,
+    target_alias_context_limit: u32,
+    target_route_context_limit: u32,
+    target_streaming: bool,
+) -> Fixture {
+    fixture_with_custom_config(
+        upstream,
+        routing_policy,
+        None,
+        true,
+        move |config| {
+            let full_context_limit = 32768;
+            let full_capabilities = json!([
+                "text",
+                "image",
+                "tools",
+                "json_schema",
+                "json_object",
+                "responses",
+                "responses_json_schema",
+                "responses_json_object"
+            ]);
+            config["credentials"][0]["aliases"] = json!(["smart", "judge", "target", "valid"]);
+            config["credentials"][0]["allowed_routes"] =
+                json!(["judge-route", "target-weak", "valid-route"]);
+            config["routes"] = json!([
+                {
+                    "name":"judge-route", "kind":"local", "base_url":upstream.base_url,
+                    "model":"judge-fixture", "safe_concurrency":1, "context_limit":full_context_limit,
+                    "adapter_version":"fixture-v1", "capabilities":full_capabilities,
+                    "streaming":true, "timeout_seconds":2, "enabled":true
+                },
+                {
+                    "name":"target-weak", "kind":"local", "base_url":upstream.base_url,
+                    "model":"target-weak-fixture", "safe_concurrency":1,
+                    "context_limit":target_alias_context_limit, "adapter_version":"fixture-v1",
+                    "capabilities":weak_capabilities, "streaming":target_streaming,
+                    "timeout_seconds":2, "enabled":true
+                },
+                {
+                    "name":"target-full", "kind":"local", "base_url":upstream.base_url,
+                    "model":"target-full-fixture", "safe_concurrency":1, "context_limit":full_context_limit,
+                    "adapter_version":"fixture-v1", "capabilities":full_capabilities,
+                    "streaming":true, "timeout_seconds":2, "enabled":true
+                },
+                {
+                    "name":"valid-route", "kind":"local", "base_url":upstream.base_url,
+                    "model":"valid-fixture", "safe_concurrency":1, "context_limit":full_context_limit,
+                    "adapter_version":"fixture-v1", "capabilities":full_capabilities,
+                    "streaming":true, "timeout_seconds":2, "enabled":true
+                }
+            ]);
+            config["aliases"] = json!({
+                "judge": {
+                    "context_limit":full_context_limit, "capabilities":full_capabilities,
+                    "streaming":true,
+                    "routes":[{"route":"judge-route", "priority":0}]
+                },
+                "target": {
+                    "context_limit":target_alias_context_limit, "capabilities":full_capabilities,
+                    "streaming":target_streaming,
+                    "routes":[
+                        {"route":"target-weak", "priority":0},
+                        {"route":"target-full", "priority":1}
+                    ]
+                },
+                "valid": {
+                    "context_limit":full_context_limit, "capabilities":full_capabilities,
+                    "streaming":true,
+                    "routes":[{"route":"valid-route", "priority":0}]
+                }
+            });
+        },
+        move |policy| {
+            if target_route_context_limit < target_alias_context_limit {
+                policy
+                    .routes
+                    .iter_mut()
+                    .find(|route| route.config.name == "target-weak")
+                    .expect("target weak route")
+                    .config
+                    .context_limit = target_route_context_limit;
+            }
+        },
+    )
 }
 
 async fn invoke(fixture: &Fixture, endpoint: &str, body: Value) -> Response {
@@ -347,6 +494,275 @@ async fn virtual_policy_decision_selects_local_target_once_without_double_admiss
     assert!(
         credential.rate.lock().unwrap().tokens < 0.1,
         "one caller admission only"
+    );
+}
+
+#[tokio::test]
+async fn decision_candidates_exclude_incompatible_local_aliases_for_chat_and_responses() {
+    for (endpoint, case, mut request) in [
+        (
+            "chat/completions",
+            "tools",
+            json!({"model":"smart","messages":[{"role":"user","content":"tools"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}]}),
+        ),
+        (
+            "chat/completions",
+            "image",
+            json!({"model":"smart","messages":[{"role":"user","content":[{"type":"text","text":"image"},{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgo="}}]}]}),
+        ),
+        (
+            "chat/completions",
+            "structured",
+            json!({"model":"smart","messages":[{"role":"user","content":"schema"}],"extra_body":{"response_format":{"type":"json_schema","json_schema":{"name":"answer","schema":{"type":"object"}}}}}),
+        ),
+        (
+            "chat/completions",
+            "stream",
+            json!({"model":"smart","messages":[{"role":"user","content":"stream"}],"stream":true}),
+        ),
+        (
+            "chat/completions",
+            "alias-context",
+            json!({"model":"smart","messages":[{"role":"user","content":"context"}],"max_tokens":2049}),
+        ),
+        (
+            "chat/completions",
+            "physical-context",
+            json!({"model":"smart","messages":[{"role":"user","content":"context"}],"max_tokens":2049}),
+        ),
+        (
+            "responses",
+            "tools",
+            json!({"model":"smart","input":"tools","tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}]}),
+        ),
+        (
+            "responses",
+            "structured",
+            json!({"model":"smart","input":"schema","text":{"format":{"type":"json_schema","name":"answer","schema":{"type":"object"}}}}),
+        ),
+        (
+            "responses",
+            "stream",
+            json!({"model":"smart","input":"stream","stream":true}),
+        ),
+        (
+            "responses",
+            "alias-context",
+            json!({"model":"smart","input":"context","max_output_tokens":2049}),
+        ),
+    ] {
+        let upstream = decision_upstream().await;
+        *upstream.state.decision_target.lock().unwrap() = "valid".into();
+        let mut weak_capabilities = vec![
+            "text",
+            "image",
+            "tools",
+            "json_schema",
+            "json_object",
+            "responses",
+            "responses_json_schema",
+            "responses_json_object",
+        ];
+        match (endpoint, case) {
+            (_, "image") => weak_capabilities.retain(|capability| *capability != "image"),
+            (_, "tools") => weak_capabilities.retain(|capability| *capability != "tools"),
+            ("chat/completions", "structured") => {
+                weak_capabilities.retain(|capability| *capability != "json_schema")
+            }
+            ("responses", "structured") => {
+                weak_capabilities.retain(|capability| *capability != "responses_json_schema")
+            }
+            _ => {}
+        }
+        if endpoint == "chat/completions" {
+            request["max_tokens"] = json!(if case.ends_with("context") { 2000 } else { 16 });
+        } else {
+            request["max_output_tokens"] = json!(if case.ends_with("context") { 2000 } else { 16 });
+        }
+        let fixture = fixture_with_locally_incompatible_candidate(
+            &upstream,
+            json!({
+                "decision_model":"judge", "decision_targets":["target","valid"],
+                "decision_timeout_seconds":2, "decision_prompt":"filter incompatible locals"
+            }),
+            json!(weak_capabilities),
+            if case == "alias-context" { 2048 } else { 32768 },
+            if case.ends_with("context") {
+                2048
+            } else {
+                32768
+            },
+            case != "stream",
+        );
+        if case == "physical-context" {
+            let runtime = fixture.app.current();
+            let mut target_request = request.clone();
+            target_request["model"] = json!("target");
+            assert!(
+                validate_request(
+                    &target_request,
+                    &runtime.policy.config.aliases["target"],
+                    None,
+                    true,
+                )
+                .is_ok(),
+                "target alias must admit the physical-context request"
+            );
+            assert_eq!(
+                runtime
+                    .policy
+                    .routes
+                    .iter()
+                    .find(|route| route.config.name == "target-weak")
+                    .unwrap()
+                    .config
+                    .context_limit,
+                2048
+            );
+            let credential = runtime.auth.read().unwrap().credentials["fixture"].clone();
+            assert!(
+                credential
+                    .allowed_routes
+                    .iter()
+                    .any(|route| route == "target-weak")
+            );
+            assert!(
+                !credential
+                    .allowed_routes
+                    .iter()
+                    .any(|route| route == "target-full")
+            );
+        }
+
+        let response = invoke(&fixture, endpoint, request).await;
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "{endpoint}/{case}: {}",
+            String::from_utf8_lossy(&body)
+        );
+        if case == "stream" {
+            let stream = String::from_utf8_lossy(&body);
+            if endpoint == "chat/completions" {
+                assert!(
+                    stream.contains("target served"),
+                    "{endpoint}/{case}: {stream}"
+                );
+            }
+            assert!(
+                stream.contains(if endpoint == "chat/completions" {
+                    "[DONE]"
+                } else {
+                    "response.completed"
+                }),
+                "{endpoint}/{case}: {stream}"
+            );
+        }
+        assert_eq!(
+            upstream.state.decision_calls.load(AtomicOrdering::Relaxed),
+            1,
+            "{endpoint}/{case} must invoke the judge once"
+        );
+        assert_eq!(
+            upstream.state.target_calls.load(AtomicOrdering::Relaxed),
+            1,
+            "{endpoint}/{case} must dispatch only the valid target"
+        );
+        let requests = upstream.state.requests.lock().unwrap();
+        assert_eq!(requests.len(), 2, "{endpoint}/{case}");
+        assert!(
+            requests[0].1["messages"][0]["content"]
+                .as_str()
+                .unwrap()
+                .contains("one of: [\"valid\"]"),
+            "{endpoint}/{case}: {}",
+            requests[0].1
+        );
+        assert_eq!(requests[1].1["model"], "valid-fixture", "{endpoint}/{case}");
+    }
+}
+
+#[tokio::test]
+async fn all_incompatible_local_decision_candidates_fail_before_judge_or_target() {
+    let upstream = decision_upstream().await;
+    let fixture = fixture_with_locally_incompatible_candidate(
+        &upstream,
+        json!({
+            "decision_model":"judge", "decision_targets":["target"],
+            "decision_timeout_seconds":2, "decision_prompt":"do not call the judge"
+        }),
+        json!([
+            "text",
+            "json_schema",
+            "json_object",
+            "responses",
+            "responses_json_schema",
+            "responses_json_object"
+        ]),
+        4096,
+        4096,
+        true,
+    );
+
+    let response = invoke(
+        &fixture,
+        "chat/completions",
+        json!({"model":"smart","messages":[{"role":"user","content":"tools"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"max_tokens":16}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        upstream.state.decision_calls.load(AtomicOrdering::Relaxed),
+        0
+    );
+    assert_eq!(upstream.state.target_calls.load(AtomicOrdering::Relaxed), 0);
+}
+
+#[tokio::test]
+async fn forged_decision_for_a_filtered_local_target_fails_before_target_inference() {
+    let upstream = decision_upstream().await;
+    *upstream.state.decision_target.lock().unwrap() = "target".into();
+    let fixture = fixture_with_locally_incompatible_candidate(
+        &upstream,
+        json!({
+            "decision_model":"judge", "decision_targets":["target","valid"],
+            "decision_timeout_seconds":2, "decision_prompt":"reject forged target"
+        }),
+        json!([
+            "text",
+            "json_schema",
+            "json_object",
+            "responses",
+            "responses_json_schema",
+            "responses_json_object"
+        ]),
+        4096,
+        4096,
+        true,
+    );
+
+    let response = invoke(
+        &fixture,
+        "chat/completions",
+        json!({"model":"smart","messages":[{"role":"user","content":"tools"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"max_tokens":16}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(
+        upstream.state.decision_calls.load(AtomicOrdering::Relaxed),
+        1
+    );
+    assert_eq!(upstream.state.target_calls.load(AtomicOrdering::Relaxed), 0);
+    let requests = upstream.state.requests.lock().unwrap();
+    assert!(
+        requests[0].1["messages"][0]["content"]
+            .as_str()
+            .unwrap()
+            .contains("one of: [\"valid\"]")
     );
 }
 

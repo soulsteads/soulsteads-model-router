@@ -11,7 +11,9 @@ For authenticated Chat Completions and Responses requests:
 1. Evaluate rules in their configured order. The first matching rule wins.
 2. If no rule matches and `decision_model` is configured, ask that local model
    to choose from `decision_targets` that the caller is authorized to use on
-   this endpoint.
+   this endpoint. Managed-local candidates must also fit the normalized request
+   and at least one enabled, authorized physical route's capabilities and
+   context limit before they are shown to the judge.
 3. Otherwise use `default_target`, if configured.
 4. If nothing selects a target, reject the request.
 
@@ -76,6 +78,23 @@ policies alike. No existing key is modified automatically.
 
 ## Decision-model contract
 
+Managed-local decision candidates reuse the concrete Chat/Responses validators
+on the normalized request, with each candidate's alias, tokenizer and thinking
+settings. They must have an enabled, credential-authorized physical route that
+meets the required context, tools, structured-output, supported modality and
+streaming contract. An unauthorized capable route cannot rescue an incompatible
+permitted route. This is a static request-fit check, not a health/capacity probe
+or a reservation; final target admission and validation still run normally.
+
+Native Codex/Copilot candidates retain their existing permission/endpoint
+prefilter and concrete provider validation. Their full request contracts are
+not prefiltered by the managed-local check. Rules and default-target selection
+are unchanged. If filtering removes every candidate, the request fails before
+judge inference; the existing `model_not_allowed` error covers that empty set.
+A judge choice outside the filtered list is invalid, even if the alias is
+otherwise authorized. A single remaining candidate still goes through the
+configured judge; failures do not become a fallback or bypass.
+
 The judge is a managed **local** chat alias, including a qualified local Headroom
 adapter; native cloud, passthrough and embedding judges are not accepted. Its
 request is nonstreaming and tool-less, with an output cap of 128 tokens. It
@@ -133,10 +152,11 @@ exact model and backend versions against representative, sanitized tasks.
 1. **Enforce hard constraints first.** Keep sensitive workloads local through
    trusted credential classes and grants. Check endpoint, capabilities, context
    and any provider-specific continuation requirements. Neither prompt content
-   nor the judge may override a cloud denial. The current selector prefilters
-   grants/endpoints; complete request capability/context validation remains at
-   the concrete target. A permitted target can still reject an unsupported
-   request, without trying another provider.
+   nor the judge may override a cloud denial. The selector prefilters grants
+   and endpoints for all candidates and request capability/context fit for
+   managed-local decision candidates. Native provider request validation and
+   final local validation/admission remain at the concrete target. A permitted
+   target can still fail without trying another provider.
 2. **Route known cases deterministically.** Use explicit rules for well-qualified
    task classes. Full request size helps enforce limits; it is not a reliable
    estimate of reasoning difficulty. A short question can need complex reasoning,
