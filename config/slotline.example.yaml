@@ -49,3 +49,15 @@ aliases:
     routes:
       - {route: local-a, priority: 10}
       - {route: local-b, priority: 10}
+
+# Optional explicit memory API; omitted/disabled by default. See docs/HINDSIGHT.md.
+# Enable only against an existing operator-approved server. Secrets resolve lazily.
+# hindsight:
+#   enabled: true
+#   endpoint: http://127.0.0.1:9180
+#   api_key_env: SLOTLINE_HINDSIGHT_API_KEY
+#   timeout_ms: 10000
+#   bindings:
+#     example-operator:
+#       bank_id: example-bank
+#       allow_retain: false

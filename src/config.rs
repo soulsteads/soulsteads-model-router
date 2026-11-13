@@ -26,6 +26,8 @@ pub struct Config {
     #[serde(default)]
     pub copilot: CopilotConfig,
     #[serde(default)]
+    pub hindsight: crate::hindsight::Config,
+    #[serde(default)]
     pub credentials: Vec<Credential>,
     #[serde(default)]
     pub key_store: Option<String>,
@@ -1169,6 +1171,7 @@ pub fn load(path: &Path) -> Result<Policy, String> {
         serde_yaml::from_str(&text).map_err(|e| format!("config parse: {e}"))?;
     config.codex.validate()?;
     config.copilot.validate()?;
+    config.hindsight.validate()?;
     if config
         .codex
         .alias

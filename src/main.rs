@@ -16,6 +16,7 @@ mod status_cli;
 
 mod embedding_context;
 mod handlers;
+mod hindsight;
 mod passthrough;
 mod request_logging;
 mod request_validation;
@@ -133,6 +134,9 @@ const MAX_AFFINITY_LEASES: usize = 4096;
 fn validate_reload(current: &Policy, candidate: &Policy) -> Result<(), String> {
     if current.config.routing_policies != candidate.config.routing_policies {
         return Err("routing policy authority cannot change on reload; restart required".into());
+    }
+    if current.config.hindsight != candidate.config.hindsight {
+        return Err("Hindsight authority cannot change on reload; restart required".into());
     }
     if current.config.codex != candidate.config.codex {
         return Err("Codex authority cannot change on reload; restart required".into());
@@ -617,6 +621,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         adaptive::run_cli(&args[1..])?;
         return Ok(());
     }
+    if args.first().is_some_and(|arg| arg == "hindsight") {
+        return hindsight::run(&args[1..]).await;
+    }
     tracing_subscriber::fmt()
         .json()
         .event_format(audit_sink::formatter())
@@ -697,6 +704,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(policy_control_loop(app_state.clone(), policy_control));
     tokio::spawn(refresh_loop(app_state.clone()));
     let app = Router::new()
+        .merge(hindsight::routes())
         .route("/v1/models", get(current_models))
         .route("/v1/chat/completions", post(current_chat))
         .route(
@@ -734,3 +742,6 @@ mod routing_policy_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod hindsight_tests;

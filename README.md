@@ -40,6 +40,8 @@ Agents and OpenAI-compatible clients
   Responses, and embeddings only to eligible backends.
 - **Rules and local decision models:** opt-in [routing policies](docs/ROUTING.md)
   choose among explicitly authorized local, Codex and Copilot aliases.
+- **Optional explicit memory:** [connect an existing Hindsight server](docs/HINDSIGHT.md)
+  for authorized retain, recall and reflect calls, with no inference memory hooks.
 - **Offline outcome scorecards:** [evaluate reviewed results](docs/ADAPTIVE_ROUTING.md)
   by workload and model version without changing live routing.
 - **Bounded retries:** retry eligible failures before response exposure, never
