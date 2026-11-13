@@ -1,0 +1,75 @@
+bind: 100.127.255.254
+port: 14022
+key_store: /synthetic/nonexistent-slotline-keys
+routes:
+  - name: native
+    kind: local
+    base_url: http://127.0.0.1:9/v1
+    model: synthetic
+    safe_concurrency: 1
+    context_limit: 8192
+    adapter_version: synthetic-v1
+    capabilities: [text, tools, json_schema, json_object, responses, responses_json_schema, responses_json_object]
+    enabled: true
+aliases:
+  small:
+    context_limit: 8192
+    capabilities: [text, tools, json_schema, json_object, responses, responses_json_schema, responses_json_object]
+    routes: [{route: native, priority: 1}]
+  large:
+    context_limit: 8192
+    streaming: false
+    capabilities: [text, responses]
+    routes: [{route: native, priority: 1}]
+  judge:
+    context_limit: 8192
+    capabilities: [text]
+    routes: [{route: native, priority: 1}]
+semantic_routing:
+  enabled: true
+  profiles:
+    auto:
+      policy_version: synthetic-v1
+      targets: [small, large]
+      default_target: small
+      rules: &rules
+        - {id: code, priority: 20, target: large, regex: 'code|debug'}
+        - {id: quick, priority: 10, target: small, keywords: [quick]}
+        - {id: tie-first, priority: 5, target: large, keywords: [tie]}
+        - {id: tie-second, priority: 5, target: small, keywords: [tie]}
+      decision: &decision
+        classifier: judge
+        confidence_threshold: 0.8
+        timeout_ms: 200
+        max_output_tokens: 64
+        on_failure: default
+    rules:
+      targets: [small, large]
+      default_target: small
+      rules: *rules
+    strict:
+      policy_version: synthetic-v1
+      targets: [small, large]
+      default_target: small
+      rules: *rules
+      decision:
+        classifier: judge
+        confidence_threshold: 0.8
+        timeout_ms: 200
+        max_output_tokens: 64
+        on_failure: error
+    preflight:
+      policy_version: synthetic-v1
+      targets: [small, large]
+      default_target: small
+      rules: *rules
+      decision: *decision
+      compatibility_preflight: true
+    shadow:
+      policy_version: synthetic-v1
+      targets: [small, large]
+      default_target: small
+      rules: *rules
+      decision: *decision
+      mode: shadow
+      compatibility_preflight: true

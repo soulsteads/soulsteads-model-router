@@ -15,6 +15,12 @@ installation. The gateway still builds as `slotline`.
 
 ## Operators
 
+- [Optional semantic routing](SEMANTIC-ROUTING.md): deterministic rules and bounded,
+  authorized decision-model selection through explicit selector aliases.
+
+- [Optional Hindsight](HINDSIGHT.md): explicit memory operations, bank mappings,
+  secret references, offline status and read-only connection checks.
+
 - [Key management](../KEYS.md): verifier store, issuance, rotation, revocation,
   acknowledgments, and backup/restore.
 - [Request audit](request-audit.md): fields, metrics, measurement boundaries,

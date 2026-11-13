@@ -6,6 +6,7 @@ pub(super) const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
 #[derive(Clone, Copy)]
 pub(super) enum ResponseContract {
     Chat,
+    Decision,
     Responses,
     Embeddings { count: usize, base64: bool },
 }
@@ -13,7 +14,7 @@ pub(super) enum ResponseContract {
 impl ResponseContract {
     fn path(self) -> &'static str {
         match self {
-            Self::Chat => "chat/completions",
+            Self::Chat | Self::Decision => "chat/completions",
             Self::Responses => "responses",
             Self::Embeddings { .. } => "embeddings",
         }
@@ -21,7 +22,7 @@ impl ResponseContract {
 
     fn valid(self, payload: &Value, model: &str) -> bool {
         match self {
-            Self::Chat => valid_chat(payload, model),
+            Self::Chat | Self::Decision => valid_chat(payload, model),
             Self::Responses => valid_responses(payload, model, true),
             Self::Embeddings { count, base64 } => valid_embeddings(payload, model, count, base64),
         }
@@ -71,10 +72,13 @@ impl UpstreamFailure {
     }
 }
 
-async fn bounded_json(mut response: reqwest::Response) -> Result<Value, UpstreamFailure> {
+async fn bounded_json(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<Value, UpstreamFailure> {
     if response
         .content_length()
-        .is_some_and(|length| length > MAX_RESPONSE_BYTES as u64)
+        .is_some_and(|length| length > limit as u64)
     {
         return Err(UpstreamFailure::InvalidBody);
     }
@@ -82,7 +86,7 @@ async fn bounded_json(mut response: reqwest::Response) -> Result<Value, Upstream
     loop {
         match response.chunk().await {
             Ok(Some(chunk)) => {
-                if chunk.len() > MAX_RESPONSE_BYTES - bytes.len() {
+                if chunk.len() > limit - bytes.len() {
                     return Err(UpstreamFailure::InvalidBody);
                 }
                 bytes.extend_from_slice(&chunk);
@@ -284,7 +288,12 @@ pub(super) async fn forward_validated(
                     }
                     UpstreamFailure::InvalidBody
                 } else {
-                    match bounded_json(response).await {
+                    let limit = if matches!(contract, ResponseContract::Decision) {
+                        4096
+                    } else {
+                        MAX_RESPONSE_BYTES
+                    };
+                    match bounded_json(response, limit).await {
                         Ok(payload) if contract.valid(&payload, &candidate.config.model) => {
                             crate::audit::observe(&payload, None);
                             crate::audit::backend("complete");

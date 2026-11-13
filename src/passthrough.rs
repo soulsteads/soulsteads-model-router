@@ -155,6 +155,17 @@ pub(crate) async fn dispatch(runtime: Arc<Runtime>, req: Request, endpoint: &str
             "Model is not authorized",
         );
     }
+    if semantic::is_selector(&runtime.policy.config, &name) {
+        return match endpoint {
+            "/chat/completions" => handlers::chat(State(runtime), headers, body).await,
+            "/responses" => handlers::responses(State(runtime), headers, body).await,
+            _ => json_error(
+                StatusCode::BAD_REQUEST,
+                "wrong_endpoint",
+                "Semantic selectors support generation only",
+            ),
+        };
+    }
     if let Some(model) = runtime
         .policy
         .config

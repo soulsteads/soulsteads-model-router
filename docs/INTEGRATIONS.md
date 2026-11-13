@@ -4,6 +4,10 @@ These integrations are not required for the [minimal setup](SETUP.md). They are
 not installed automatically, and their external binaries, model assets, and
 project versions need separate verification.
 
+- [Hindsight](HINDSIGHT.md) is a disabled-by-default connection to an existing
+  external memory server, with explicit authenticated retain/recall/reflect and
+  server-owned bank mappings. It never enriches or retains ordinary inference.
+
 - `scripts/install_qwen_tokenizer.sh` attempts to fetch a checksum-pinned Qwen
   tokenizer. The pinned external URL returned HTTP 401 during public-release
   preparation; do not assume anonymous download access. The minimal setup does

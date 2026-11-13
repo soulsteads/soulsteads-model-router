@@ -14,6 +14,25 @@ explicitly ignored by default: two loopback-HTTP checks and two synthetic
 overhead measurements. An ignored test is not a pass. Python parser/report
 tests use the standard library.
 
+Semantic routing has a socket-free subset and real HTTP mock checks. Run these
+separately when the build sandbox forbids listening sockets; compiling the HTTP
+tests does not qualify their behavior:
+
+```sh
+cargo test --locked semantic_tests:: -- --skip semantic_tests::http
+cargo test --locked semantic_tests::http
+```
+
+The socket-free subset includes complete Responses message-shape validation,
+normalized `extra_body.input` and duplicate-input rejection before a busy gate
+or cloud dispatch, plus semantic status authorization and shared-gate reload
+snapshots. HTTP mocks and the compiled-gateway fixture cover rule/default/model/
+fallback branches with cloud-authorized native Responses targets and explicitly
+absent synthetic OAuth files; no real cloud call is required. Positive controls
+keep complete typed/type-less messages and outbound bodies working. Run those
+socket/credential fixtures in a trusted private test namespace when the native
+sandbox cannot satisfy their listener or credential-ancestor requirements.
+
 Tokenizer-dependent Rust tests return early when `SLOTLINE_TEST_TOKENIZER` is
 absent; the test runner can show them as passed without exercising tokenizer
 assertions. The optional private-request diagnostic also requires
@@ -37,6 +56,20 @@ tests. Use an isolated test host if your machine lacks a Tailnet address.
 Fixtures use fixed local backend and gateway ports; run them **sequentially**,
 and confirm these ports are free before starting. Their policies and credentials
 are disposable and separate from an installed service.
+
+The semantic-routing fixture instead allocates disposable local ports and uses
+only synthetic models. It still needs an assigned Tailnet gateway address and
+the exact compiled binary. Run it in the socket-capable test environment, not a
+build-only sandbox:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 tests/semantic_routing_validation.py \
+  --result /tmp/slotline-semantic-result.json
+```
+
+It writes a separate gateway log beside the result. See
+[semantic routing](SEMANTIC-ROUTING.md) for supported endpoints, classifier
+restrictions, restart requirements and continuation/pinning limits.
 
 ```sh
 cargo build --release --locked

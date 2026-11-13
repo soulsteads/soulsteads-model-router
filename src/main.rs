@@ -15,9 +15,14 @@ mod status_cli;
 
 mod embedding_context;
 mod handlers;
+mod hindsight;
 mod passthrough;
 mod request_logging;
 mod request_validation;
+mod semantic;
+mod semantic_cli;
+#[cfg(test)]
+mod semantic_tests;
 mod upstream;
 mod validation;
 use request_validation::*;
@@ -130,6 +135,12 @@ const MAX_AFFINITY_LEASES: usize = 4096;
 // and configuration keep every indexed observation, counter, lease and shared
 // physical semaphore meaningful while older generations drain.
 fn validate_reload(current: &Policy, candidate: &Policy) -> Result<(), String> {
+    if current.config.semantic_routing != candidate.config.semantic_routing {
+        return Err("Semantic routing cannot change on reload; restart required".into());
+    }
+    if current.config.hindsight != candidate.config.hindsight {
+        return Err("Hindsight authority cannot change on reload; restart required".into());
+    }
     if current.config.codex != candidate.config.codex {
         return Err("Codex authority cannot change on reload; restart required".into());
     }
@@ -483,6 +494,13 @@ async fn models(State(runtime): State<Arc<Runtime>>, headers: HeaderMap) -> Resp
             models.push(json!({"id":name,"object":"model","created":0,"owned_by":"slotline","context_length":alias.context_limit,"model_info":{"mode":mode,"max_input_tokens":alias.context_limit,"max_total_tokens":alias.context_limit}}));
         }
     }
+    if runtime.policy.config.semantic_routing.enabled {
+        for name in runtime.policy.config.semantic_routing.profiles.keys() {
+            if credential.aliases.contains(name) {
+                models.push(json!({"id":name,"object":"model","created":0,"owned_by":"slotline","model_info":{"mode":"chat","semantic_selector":true}}));
+            }
+        }
+    }
     if copilot::eligible(&credential, &runtime.policy.config.copilot) {
         for model in &runtime.policy.config.copilot.models {
             if credential.aliases.contains(&model.alias) {
@@ -552,8 +570,18 @@ async fn current_metrics(State(app): State<Arc<AppState>>, headers: HeaderMap) -
     metrics(State(app.current()), headers).await
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "semantic") {
+        return semantic_cli::run(&args[1..]);
+    }
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run_main(args))
+}
+
+async fn run_main(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .json()
         .event_format(audit_sink::formatter())
@@ -563,7 +591,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap_or_else(|_| "slotline=info".into()),
         )
         .init();
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "hindsight") {
+        return hindsight::run(&args[1..]).await;
+    }
     if args.first().is_some_and(|arg| arg == "codex") {
         return codex_auth::run(&args[1..]).await;
     }
@@ -607,7 +637,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (check, path) = match args.as_slice() {
         [path] => (false, PathBuf::from(path)),
         [flag, path] if flag == "--check-config" => (true, PathBuf::from(path)),
-        _ => return Err("usage: slotline [--check-config|reload] CONFIG.yaml | status [CONFIG.yaml] [--json] | keys ...".into()),
+        _ => return Err("usage: slotline [--check-config|reload] CONFIG.yaml | status [CONFIG.yaml] [--json] | semantic --help | keys ...".into()),
     };
     let policy = config::load(&path)?;
     if check {
@@ -635,6 +665,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(policy_control_loop(app_state.clone(), policy_control));
     tokio::spawn(refresh_loop(app_state.clone()));
     let app = Router::new()
+        .merge(hindsight::routes())
         .route("/v1/models", get(current_models))
         .route("/v1/chat/completions", post(current_chat))
         .route(
@@ -668,3 +699,6 @@ mod codex_tests;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod hindsight_tests;

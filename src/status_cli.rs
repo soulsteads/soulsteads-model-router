@@ -36,6 +36,23 @@ fn percentage(value: &Value, key: &str) -> Result<f64, String> {
         .ok_or_else(|| format!("invalid status response: missing {key}"))
 }
 
+fn selector_names(value: &Value) -> Result<String, String> {
+    let names = value
+        .as_array()
+        .ok_or("invalid status response: invalid selectors")?
+        .iter()
+        .map(|name| {
+            name.as_str()
+                .ok_or("invalid status response: invalid selector")
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(if names.is_empty() {
+        "(none)".into()
+    } else {
+        names.join(", ")
+    })
+}
+
 pub(crate) fn render(value: &Value) -> Result<String, String> {
     let routes = object(value, "routes")?;
     let credentials = object(value, "credentials")?;
@@ -53,6 +70,53 @@ pub(crate) fn render(value: &Value) -> Result<String, String> {
         number(value, "upstream_errors_total")?
     )
     .unwrap();
+    if let Some(semantic) = value.get("semantic_routing") {
+        let enabled = semantic["enabled"]
+            .as_bool()
+            .ok_or("invalid status response: missing semantic enabled")?;
+        let admission = &semantic["decision_admission"];
+        let closed = admission["closed"]
+            .as_bool()
+            .ok_or("invalid status response: missing decision admission state")?;
+        writeln!(
+            out,
+            "\nSemantic routing: {}",
+            if enabled { "enabled" } else { "disabled" }
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  Configured selectors: {}",
+            selector_names(&semantic["selectors"])?
+        )
+        .unwrap();
+        writeln!(
+            out,
+            "  Decision admission: {}/{} in flight, {} available, {}",
+            number(admission, "in_flight")?,
+            number(admission, "limit")?,
+            number(admission, "available")?,
+            if closed { "closed" } else { "open" }
+        )
+        .unwrap();
+        if let Some(profiles) = semantic.get("profiles").and_then(Value::as_object) {
+            for (name, profile) in profiles {
+                writeln!(
+                    out,
+                    "  Profile {name}: mode={}, version={}, preflight={}",
+                    text(profile, "mode")?,
+                    profile["policy_version"].as_str().unwrap_or("(none)"),
+                    profile["compatibility_preflight"]
+                        .as_bool()
+                        .unwrap_or(false)
+                )
+                .unwrap();
+            }
+        }
+        if let Some(digest) = semantic.get("policy_sha256").and_then(Value::as_str) {
+            writeln!(out, "  Semantic policy SHA256: {digest}").unwrap();
+        }
+    }
     writeln!(
         out,
         "\nEndpoints (traffic = upstream attempts; 5m share / process-lifetime share):"
@@ -150,6 +214,9 @@ pub(crate) fn render(value: &Value) -> Result<String, String> {
             text(c, "class")?
         )
         .unwrap();
+        if let Some(selectors) = c.get("semantic_selectors") {
+            writeln!(out, "    Selector grants: {}", selector_names(selectors)?).unwrap();
+        }
         let aliases = object(c, "aliases")?;
         let mut alias_names: Vec<_> = aliases.keys().collect();
         alias_names.sort();

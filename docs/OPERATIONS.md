@@ -30,6 +30,13 @@ from disk without putting its value into command-line arguments.
 
 Status includes route readiness, admission counts, configured credential access,
 eligible alias mappings, advisory affinity leases, and upstream attempt shares.
+Optional semantic routing appears separately: enabled/disabled state, sorted
+configured selector IDs, live decision-admission limit/usage/availability and
+closed state. Credential `semantic_selectors` lists selector grants separately
+from physical-route `aliases`; these grants do not confer classifier or target
+authority. Disabled configured selectors remain visible but cannot dispatch.
+Unrelated policy reloads retain the same decision gate; semantic policy and its
+limit require restart. See [semantic routing](SEMANTIC-ROUTING.md#operator-status).
 It is operational metadata: do not publish snapshots containing private endpoint
 addresses or identifying credential/route names.
 

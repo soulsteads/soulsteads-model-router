@@ -36,6 +36,10 @@ Agents and OpenAI-compatible clients
 - **One catalog:** restrict each client key to the aliases and routes it needs.
 - **Capacity-aware routing:** prefer idle backends, then fewer occupied slots
   and more free slots. Adapters for one physical backend share its limit.
+- **Optional semantic selectors:** [rules and decision-model routing](docs/SEMANTIC-ROUTING.md)
+  select only operator-configured, independently authorized target aliases;
+  opt-in shadow/preflight and offline `slotline semantic explain|evaluate` support
+  restart-based operator rollout without duplicate generation.
 - **Capability checks:** route supported tools, structured output, inline images,
   Responses, and embeddings only to eligible backends.
 - **Bounded retries:** retry eligible failures before response exposure, never
@@ -92,6 +96,9 @@ it needs your actual bind address, key path, model ID, and verified limits.
 No model server or prebuilt binary is bundled.
 
 ## Documentation
+
+- [Optional Hindsight](docs/HINDSIGHT.md): explicit memory operations with scoped
+  banks; disabled by default and never required for ordinary inference.
 
 - [Setup](docs/SETUP.md): build, configuration, first request, optional user service.
 - [Compatibility](docs/COMPATIBILITY.md): endpoints, supported request shapes, limits.

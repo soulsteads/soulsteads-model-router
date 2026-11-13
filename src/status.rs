@@ -476,6 +476,10 @@ pub(super) async fn status(State(runtime): State<Arc<Runtime>>, headers: HeaderM
 }
 
 pub(super) fn status_payload(runtime: &Runtime) -> Value {
+    let semantic = &runtime.policy.config.semantic_routing;
+    let mut selectors: Vec<_> = semantic.profiles.keys().collect();
+    selectors.sort();
+    let decision_available = runtime.semantic_admission.available_permits();
     let observations = runtime.observations.lock().unwrap();
     let telemetry = runtime.backend_telemetry.lock().unwrap();
     let (attempts, recent) = traffic_counts(runtime);
@@ -522,6 +526,11 @@ pub(super) fn status_payload(runtime: &Runtime) -> Value {
                 .is_none_or(|snapshot| snapshot.values().any(|key| key.policy.id == c.name))
         })
         .map(|c| {
+            let semantic_selectors: Vec<_> = selectors
+                .iter()
+                .filter(|name| c.aliases.contains(*name))
+                .copied()
+                .collect();
             let aliases: HashMap<_, _> = c
                 .aliases
                 .iter()
@@ -552,7 +561,7 @@ pub(super) fn status_payload(runtime: &Runtime) -> Value {
             (
                 c.name.clone(),
                 json!({"class": c.class, "agent_affinity": c.agent_affinity,
-            "operator": c.operator, "aliases": aliases}),
+            "operator": c.operator, "aliases": aliases, "semantic_selectors": semantic_selectors}),
             )
         })
         .collect();
@@ -573,6 +582,15 @@ pub(super) fn status_payload(runtime: &Runtime) -> Value {
             .then_with(|| a["age_seconds"].as_u64().cmp(&b["age_seconds"].as_u64()))
     });
     json!({"routes": routes, "credentials": credentials, "leases": leases, "audit":crate::audit_identity::status(runtime),
+        "semantic_routing": {"enabled": semantic.enabled, "selectors": selectors,
+            "profiles": semantic.profiles.iter().map(|(name, profile)| (name.clone(), json!({
+                "mode":profile.mode,"policy_version":profile.policy_version,
+                "compatibility_preflight":profile.compatibility_preflight,
+                "shadow_classifier":"not_run"}))).collect::<std::collections::BTreeMap<_,_>>(),
+            "policy_sha256":runtime.policy_digest,
+            "decision_admission": {"limit": semantic.max_in_flight,
+                "in_flight": semantic.max_in_flight.saturating_sub(decision_available),
+                "available": decision_available, "closed": runtime.semantic_admission.is_closed()}},
         "lease_ttl_seconds": lease_ttl, "traffic_window_seconds": 300,
         "requests_total": runtime.requests.load(Ordering::Relaxed),
         "rejects_total": runtime.rejects.load(Ordering::Relaxed),
@@ -701,6 +719,13 @@ pub(super) fn make_runtime(
     policy: Policy,
     previous: Option<&Arc<Runtime>>,
 ) -> Result<Arc<Runtime>, String> {
+    let semantic_rules = policy
+        .config
+        .semantic_routing
+        .profiles
+        .iter()
+        .map(|(name, profile)| semantic::compile_rules(profile).map(|rules| (name.clone(), rules)))
+        .collect::<Result<HashMap<_, _>, _>>()?;
     let route_count = policy.routes.len();
     let policy_digest = crate::audit_identity::digest(&policy.config);
     if let Some(old) = previous {
@@ -725,6 +750,9 @@ pub(super) fn make_runtime(
             probes: old.probes.clone(),
             codex_semaphore: old.codex_semaphore.clone(),
             codex_client: old.codex_client.clone(),
+            hindsight_client: old.hindsight_client.clone(),
+            semantic_admission: old.semantic_admission.clone(),
+            semantic_rules,
             semaphores: old.semaphores.clone(),
             qualification_locks: old.qualification_locks.clone(),
             observations: old.observations.clone(),
@@ -789,9 +817,16 @@ pub(super) fn make_runtime(
     Ok(Arc::new(Runtime {
         policy_digest,
         policy_generation: 1,
+        semantic_admission: Arc::new(Semaphore::new(policy.config.semantic_routing.max_in_flight)),
+        semantic_rules,
         audit_metrics: Arc::new(crate::audit::Metrics::default()),
         codex_semaphore: Arc::new(Semaphore::new(8)),
         codex_client,
+        hindsight_client: if policy.config.hindsight.enabled {
+            crate::hindsight::client().ok()
+        } else {
+            None
+        },
         semaphores,
         qualification_locks,
         auth: Arc::new(RwLock::new(auth)),

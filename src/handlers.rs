@@ -13,6 +13,40 @@ pub(super) async fn chat(
             return e;
         }
     };
+    semantic_or_base(runtime, credential, headers, body, false).await
+}
+
+async fn semantic_or_base(
+    runtime: Arc<Runtime>,
+    credential: Arc<CredentialState>,
+    headers: HeaderMap,
+    body: Bytes,
+    responses: bool,
+) -> Response {
+    if runtime.policy.config.semantic_routing.enabled
+        && body.len() <= 8 * 1024 * 1024
+        && let Ok(request) = serde_json::from_slice::<Value>(&body)
+        && request
+            .get("model")
+            .and_then(Value::as_str)
+            .is_some_and(|name| semantic::is_selector(&runtime.policy.config, name))
+    {
+        return semantic::dispatch(runtime, credential, headers, request, responses).await;
+    }
+    if responses {
+        responses_base(runtime, credential, headers, body).await
+    } else {
+        chat_base(runtime, credential, headers, body, false).await
+    }
+}
+
+pub(crate) async fn chat_base(
+    runtime: Arc<Runtime>,
+    credential: Arc<CredentialState>,
+    headers: HeaderMap,
+    body: Bytes,
+    decision: bool,
+) -> Response {
     let class = credential.class.clone();
     let matcher = matcher_id(&runtime, &credential, &headers);
     let class_permit = match credential.class_semaphore.clone().try_acquire_owned() {
@@ -55,6 +89,13 @@ pub(super) async fn chat(
         .model_for_alias(&alias_name)
         .map(|model| model.endpoint)
     {
+        if endpoint != config::CopilotEndpoint::ChatCompletions {
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                "wrong_endpoint",
+                "Model does not support /v1/chat/completions",
+            );
+        }
         return copilot::forward(
             runtime,
             credential,
@@ -152,7 +193,11 @@ pub(super) async fn chat(
         needs,
         affinity_key.as_ref(),
         started,
-        ResponseContract::Chat,
+        if decision {
+            ResponseContract::Decision
+        } else {
+            ResponseContract::Chat
+        },
     )
     .await
     {
@@ -207,6 +252,15 @@ pub(super) async fn responses(
             return error;
         }
     };
+    semantic_or_base(runtime, credential, headers, body, true).await
+}
+
+pub(crate) async fn responses_base(
+    runtime: Arc<Runtime>,
+    credential: Arc<CredentialState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
     let class_permit = match credential.class_semaphore.clone().try_acquire_owned() {
         Ok(permit) => permit,
         Err(_) => {
@@ -239,6 +293,25 @@ pub(super) async fn responses(
             "model_not_allowed",
             "Model is not authorized",
         );
+    }
+    if let Some(model) = runtime.policy.config.copilot.model_for_alias(&alias_name) {
+        let endpoint = model.endpoint;
+        if endpoint != config::CopilotEndpoint::Responses {
+            return json_error(
+                StatusCode::BAD_REQUEST,
+                "wrong_endpoint",
+                "Model does not support /v1/responses",
+            );
+        }
+        return copilot::forward(
+            runtime,
+            credential,
+            headers,
+            request,
+            endpoint,
+            class_permit,
+        )
+        .await;
     }
     if runtime.policy.config.codex.alias.as_ref() == Some(&alias_name) {
         return codex::forward(runtime, credential, headers, request, false, class_permit).await;

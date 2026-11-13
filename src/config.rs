@@ -26,6 +26,10 @@ pub struct Config {
     #[serde(default)]
     pub copilot: CopilotConfig,
     #[serde(default)]
+    pub hindsight: crate::hindsight::Config,
+    #[serde(default)]
+    pub semantic_routing: crate::semantic::Config,
+    #[serde(default)]
     pub credentials: Vec<Credential>,
     #[serde(default)]
     pub key_store: Option<String>,
@@ -864,6 +868,7 @@ pub fn key_credentials_from_snapshot(
     for credential in &credentials {
         if credential.aliases.iter().any(|alias| {
             !config.aliases.contains_key(alias)
+                && !config.semantic_routing.profiles.contains_key(alias)
                 && config.codex.alias.as_deref() != Some(alias.as_str())
                 && !config
                     .copilot
@@ -882,6 +887,9 @@ pub fn key_credentials_from_snapshot(
                         && !config.routes.iter().any(|route| &route.name == name)
                 })
                 || credential.aliases.iter().any(|name| {
+                    if config.semantic_routing.profiles.contains_key(name) {
+                        return false;
+                    }
                     if config.codex.alias.as_ref() == Some(name) {
                         return !allowed.contains(&"codex".to_string());
                     }
@@ -954,11 +962,52 @@ fn read_key(path: &str) -> Result<Vec<u8>, String> {
 }
 
 pub fn load(path: &Path) -> Result<Policy, String> {
-    let text = fs::read_to_string(path).map_err(|e| format!("config read: {e}"))?;
-    let mut config: Config =
-        serde_yaml::from_str(&text).map_err(|e| format!("config parse: {e}"))?;
+    load_impl(path, false)
+}
+
+pub(crate) fn load_static(path: &Path) -> Result<Config, String> {
+    load_impl(path, true).map(|policy| policy.config)
+}
+
+fn load_impl(path: &Path, offline: bool) -> Result<Policy, String> {
+    use std::io::Read;
+    let text = if offline {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut text = String::new();
+        let file = fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(path)
+            .map_err(|_| "config read failed".to_string())?;
+        if !file.metadata().map_err(|_| "config read failed")?.is_file() {
+            return Err("regular config file required".into());
+        }
+        file.take(1024 * 1024 + 1)
+            .read_to_string(&mut text)
+            .map_err(|_| "config read failed".to_string())?;
+        if text.len() > 1024 * 1024 {
+            return Err("config exceeds 1 MiB".into());
+        }
+        text
+    } else {
+        fs::read_to_string(path).map_err(|e| format!("config read: {e}"))?
+    };
+    let mut config: Config = serde_yaml::from_str(&text).map_err(|error| {
+        error.location().map_or_else(
+            || "config parse: invalid configuration".into(),
+            |location| {
+                format!(
+                    "config parse: invalid configuration at line {}, column {}",
+                    location.line(),
+                    location.column()
+                )
+            },
+        )
+    })?;
+    config.hindsight.validate()?;
     config.codex.validate()?;
     config.copilot.validate()?;
+    crate::semantic::validate(&config)?;
     if config
         .codex
         .alias
@@ -977,13 +1026,17 @@ pub fn load(path: &Path) -> Result<Policy, String> {
         if !config.credentials.is_empty() || !Path::new(path).is_absolute() {
             return Err("key_store requires an absolute path and no legacy credentials".into());
         }
-        let keys = key_manager::snapshot(Path::new(path))
-            .map_err(|e| format!("key store unavailable: {e}"))?;
-        if keys.is_empty() {
-            return Err("key store has no active credentials".into());
+        if offline {
+            None
+        } else {
+            let keys = key_manager::snapshot(Path::new(path))
+                .map_err(|e| format!("key store unavailable: {e}"))?;
+            if keys.is_empty() {
+                return Err("key store has no active credentials".into());
+            }
+            config.credentials = key_credentials_from_snapshot(&config, &keys)?;
+            Some(Arc::new(keys))
         }
-        config.credentials = key_credentials_from_snapshot(&config, &keys)?;
-        Some(Arc::new(keys))
     } else {
         None
     };
@@ -996,10 +1049,11 @@ pub fn load(path: &Path) -> Result<Policy, String> {
     }
     for (class, budget) in &config.class_timeout_budgets {
         budget.validate()?;
-        if !config
-            .credentials
-            .iter()
-            .any(|credential| &credential.class == class)
+        if !(offline && config.key_store.is_some())
+            && !config
+                .credentials
+                .iter()
+                .any(|credential| &credential.class == class)
         {
             return Err(format!(
                 "timeout budget for unknown credential class {class}"
@@ -1216,6 +1270,15 @@ pub fn load(path: &Path) -> Result<Policy, String> {
             if alias.endpoint != Endpoint::Chat {
                 return Err(format!("tokenizer only supported for chat alias {name}"));
             }
+            if offline {
+                if !Path::new(&spec.file).is_absolute()
+                    || spec.sha256.len() != 64
+                    || !spec.sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+                {
+                    return Err("invalid tokenizer reference".into());
+                }
+                continue;
+            }
             let key = format!("{}:{}", spec.file, spec.sha256);
             let tokenizer = if let Some(cached) = tokenizer_cache.get(&key) {
                 cached.clone()
@@ -1242,6 +1305,7 @@ pub fn load(path: &Path) -> Result<Policy, String> {
         }
         if credential.aliases.iter().any(|a| {
             !config.aliases.contains_key(a)
+                && !config.semantic_routing.profiles.contains_key(a)
                 && config.codex.alias.as_ref() != Some(a)
                 && !config.copilot.models.iter().any(|model| &model.alias == a)
         }) {
@@ -1256,6 +1320,9 @@ pub fn load(path: &Path) -> Result<Policy, String> {
                         && !config.routes.iter().any(|route| &route.name == name)
                 })
                 || credential.aliases.iter().any(|name| {
+                    if config.semantic_routing.profiles.contains_key(name) {
+                        return false;
+                    }
                     if config.codex.alias.as_ref() == Some(name) {
                         return !allowed.contains(&"codex".to_string());
                     }
@@ -1290,10 +1357,14 @@ pub fn load(path: &Path) -> Result<Policy, String> {
         }
         credentials.push(LoadedCredential {
             config: credential.clone(),
-            key: credential.key_file.as_deref().map(read_key).transpose()?,
+            key: if offline {
+                None
+            } else {
+                credential.key_file.as_deref().map(read_key).transpose()?
+            },
         });
     }
-    if credentials.is_empty() {
+    if credentials.is_empty() && !(offline && config.key_store.is_some()) {
         return Err("no credentials".into());
     }
     for i in 0..credentials.len() {
@@ -1307,16 +1378,22 @@ pub fn load(path: &Path) -> Result<Policy, String> {
     for route in &config.routes {
         routes.push(LoadedRoute {
             config: route.clone(),
-            key: route
-                .credential_file
-                .as_ref()
-                .map(|p| read_key(p))
-                .transpose()?,
+            key: if offline {
+                None
+            } else {
+                route
+                    .credential_file
+                    .as_ref()
+                    .map(|p| read_key(p))
+                    .transpose()?
+            },
         });
     }
     let mut matchers = Vec::new();
     for matcher in &config.metadata_matchers {
-        if matcher.regex.len() > 256 || !config.credentials.iter().any(|c| c.class == matcher.class)
+        if matcher.regex.len() > 256
+            || (!(offline && config.key_store.is_some())
+                && !config.credentials.iter().any(|c| c.class == matcher.class))
         {
             return Err(format!("invalid matcher {}", matcher.id));
         }

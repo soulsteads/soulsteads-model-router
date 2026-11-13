@@ -317,7 +317,7 @@ fn native_validation_projection(validation: &mut Value) -> Result<(), Response> 
 
 // Match the existing HTTP validators: return the prepared error response.
 #[allow(clippy::result_large_err)]
-fn native_request(request: &Value) -> Result<(), Response> {
+pub(crate) fn native_request(request: &Value) -> Result<(), Response> {
     let object = request.as_object().ok_or_else(invalid)?;
     if object.keys().any(|key| {
         ![

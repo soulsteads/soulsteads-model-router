@@ -98,6 +98,9 @@ pub(crate) struct Runtime {
     pub(crate) probes: reqwest::Client,
     pub(crate) codex_semaphore: Arc<Semaphore>,
     pub(crate) codex_client: reqwest::Client,
+    pub(crate) hindsight_client: Option<reqwest::Client>,
+    pub(crate) semantic_admission: Arc<Semaphore>,
+    pub(crate) semantic_rules: HashMap<String, Vec<semantic::CompiledRule>>,
     pub(crate) semaphores: Vec<Arc<Semaphore>>,
     pub(crate) qualification_locks: Vec<Arc<tokio::sync::Mutex<()>>>,
     pub(crate) observations: Arc<Mutex<Vec<RouteObservation>>>,
@@ -120,6 +123,7 @@ pub(crate) struct AppState {
     pub(crate) current: RwLock<Arc<Runtime>>,
     pub(crate) reload_lock: tokio::sync::Mutex<()>,
     pub(crate) path: PathBuf,
+    pub(crate) hindsight_admission: hindsight::Admission,
 }
 
 impl AppState {
@@ -128,6 +132,7 @@ impl AppState {
             current: RwLock::new(make_runtime(policy, None)?),
             reload_lock: tokio::sync::Mutex::new(()),
             path,
+            hindsight_admission: hindsight::Admission::default(),
         })
     }
 

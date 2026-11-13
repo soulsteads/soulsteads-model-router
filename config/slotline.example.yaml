@@ -5,6 +5,15 @@ bind: 100.127.255.254
 port: 4011
 refresh_seconds: 60
 affinity_lease_seconds: 900
+# Optional external memory connection; no secret lookup or network when disabled.
+# See docs/HINDSIGHT.md before enabling or granting a bank mapping.
+hindsight:
+  enabled: false
+  # endpoint: http://127.0.0.1:9180
+  # api_key_env: SLOTLINE_HINDSIGHT_API_KEY
+  # timeout_ms: 10000
+  # bindings:
+  #   example-operator: {bank_id: operator-memory, allow_retain: false}
 credentials:
   - name: example-operator
     # Must be an absolute path to a private file (0600) containing 24..4096 bytes.
