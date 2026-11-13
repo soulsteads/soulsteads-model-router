@@ -725,6 +725,7 @@ pub(super) fn make_runtime(
             probes: old.probes.clone(),
             codex_semaphore: old.codex_semaphore.clone(),
             codex_client: old.codex_client.clone(),
+            hindsight_client: old.hindsight_client.clone(),
             semaphores: old.semaphores.clone(),
             qualification_locks: old.qualification_locks.clone(),
             observations: old.observations.clone(),
@@ -792,6 +793,11 @@ pub(super) fn make_runtime(
         audit_metrics: Arc::new(crate::audit::Metrics::default()),
         codex_semaphore: Arc::new(Semaphore::new(8)),
         codex_client,
+        hindsight_client: if policy.config.hindsight.enabled {
+            Some(hindsight::client()?)
+        } else {
+            None
+        },
         semaphores,
         qualification_locks,
         auth: Arc::new(RwLock::new(auth)),
