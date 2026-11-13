@@ -107,6 +107,12 @@ impl CodexConfig {
     }
 
     pub(crate) fn validate(&self) -> Result<(), String> {
+        self.validate_pure()?;
+        self.validate_account_storage()
+    }
+
+    // Configuration shape only: no account-derived filesystem access.
+    pub(crate) fn validate_pure(&self) -> Result<(), String> {
         let auth_source = self.resolved_auth_source()?;
         for (name, value) in [
             ("auth_base_url", self.auth_base_url.as_deref()),
@@ -177,12 +183,6 @@ impl CodexConfig {
                 if !account_file.is_absolute() || account_file.file_name().is_none() {
                     return Err("Codex account_file must be an absolute file path".into());
                 }
-                if account_file
-                    .ancestors()
-                    .any(|ancestor| ancestor.join(".git").exists())
-                {
-                    return Err("Codex account_file must be outside a Git worktree".into());
-                }
             }
             if let Some(path) = self
                 .cli_auth_file
@@ -215,6 +215,23 @@ impl CodexConfig {
                 .is_some_and(|model| model.trim().is_empty())
         {
             return Err("Codex alias and model must not be empty".into());
+        }
+        Ok(())
+    }
+    // Serving retains the storage guard in addition to all pure checks.
+    fn validate_account_storage(&self) -> Result<(), String> {
+        if self.enabled && self.resolved_auth_source()? == CodexAuthSource::Managed {
+            let account_file = Path::new(
+                self.account_file
+                    .as_deref()
+                    .expect("validated managed path"),
+            );
+            if account_file
+                .ancestors()
+                .any(|ancestor| ancestor.join(".git").exists())
+            {
+                return Err("Codex account_file must be outside a Git worktree".into());
+            }
         }
         Ok(())
     }
@@ -772,6 +789,10 @@ pub struct Alias {
 #[serde(deny_unknown_fields)]
 pub struct RoutingPolicy {
     #[serde(default)]
+    pub mode: RoutingMode,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
     pub rules: Vec<RoutingRule>,
     #[serde(default)]
     pub decision_model: Option<String>,
@@ -783,6 +804,87 @@ pub struct RoutingPolicy {
     pub decision_prompt: String,
     #[serde(default)]
     pub default_target: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, serde::Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingMode {
+    #[default]
+    Active,
+    Shadow,
+}
+impl RoutingMode {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Shadow => "shadow",
+        }
+    }
+}
+
+// The wire representation is the authority; compiled regex state is derived once.
+#[derive(Clone, serde::Serialize)]
+pub struct RoutingUserText {
+    pub keywords: Vec<String>,
+    pub regex: Option<String>,
+    pub case_sensitive: bool,
+    #[serde(skip)]
+    compiled: Regex,
+}
+impl PartialEq for RoutingUserText {
+    fn eq(&self, other: &Self) -> bool {
+        self.keywords == other.keywords
+            && self.regex == other.regex
+            && self.case_sensitive == other.case_sensitive
+    }
+}
+impl Eq for RoutingUserText {}
+impl<'de> Deserialize<'de> for RoutingUserText {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Wire {
+            #[serde(default)]
+            keywords: Vec<String>,
+            #[serde(default)]
+            regex: Option<String>,
+            #[serde(default)]
+            case_sensitive: bool,
+        }
+        let wire = Wire::deserialize(deserializer)?;
+        if wire.regex.is_some() == !wire.keywords.is_empty()
+            || wire.keywords.len() > 16
+            || wire
+                .keywords
+                .iter()
+                .any(|word| word.is_empty() || word.len() > 128)
+            || wire
+                .regex
+                .as_ref()
+                .is_some_and(|pattern| pattern.is_empty() || pattern.len() > 512)
+        {
+            return Err(serde::de::Error::custom("invalid routing user_text"));
+        }
+        let pattern = wire.regex.clone().unwrap_or_else(|| {
+            wire.keywords
+                .iter()
+                .map(|word| regex::escape(word))
+                .collect::<Vec<_>>()
+                .join("|")
+        });
+        let compiled = regex::RegexBuilder::new(&pattern)
+            .case_insensitive(!wire.case_sensitive)
+            .size_limit(64 * 1024)
+            .dfa_size_limit(64 * 1024)
+            .build()
+            .map_err(|_| serde::de::Error::custom("invalid routing user_text regex"))?;
+        Ok(Self {
+            keywords: wire.keywords,
+            regex: wire.regex,
+            case_sensitive: wire.case_sensitive,
+            compiled,
+        })
+    }
 }
 
 fn default_decision_timeout() -> u64 {
@@ -801,6 +903,8 @@ pub struct RoutingRule {
 #[derive(Clone, Default, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RoutingPredicate {
+    #[serde(default)]
+    pub user_text: Option<RoutingUserText>,
     #[serde(default)]
     pub credential_classes: Vec<String>,
     #[serde(default)]
@@ -825,7 +929,8 @@ pub enum RoutingEndpoint {
 }
 
 #[derive(Clone, Copy)]
-pub struct RoutingRequestShape {
+pub struct RoutingRequestShape<'a> {
+    pub user_text: Option<&'a str>,
     pub endpoint: RoutingEndpoint,
     pub stream: bool,
     pub tools: bool,
@@ -834,8 +939,12 @@ pub struct RoutingRequestShape {
 }
 
 impl RoutingPredicate {
-    pub fn matches(&self, credential_class: &str, request: RoutingRequestShape) -> bool {
-        (self.credential_classes.is_empty()
+    pub fn matches(&self, credential_class: &str, request: RoutingRequestShape<'_>) -> bool {
+        self.user_text.as_ref().is_none_or(|condition| {
+            request
+                .user_text
+                .is_some_and(|text| condition.compiled.is_match(text))
+        }) && (self.credential_classes.is_empty()
             || self
                 .credential_classes
                 .iter()
@@ -853,7 +962,8 @@ impl RoutingPredicate {
     }
 
     fn is_empty(&self) -> bool {
-        self.credential_classes.is_empty()
+        self.user_text.is_none()
+            && self.credential_classes.is_empty()
             && self.endpoints.is_empty()
             && self.stream.is_none()
             && self.tools.is_none()
@@ -867,7 +977,7 @@ impl RoutingPolicy {
     pub fn rule_target(
         &self,
         credential_class: &str,
-        request: RoutingRequestShape,
+        request: RoutingRequestShape<'_>,
     ) -> Option<&str> {
         self.rules
             .iter()
@@ -1078,11 +1188,25 @@ fn concrete_routing_target(config: &Config, target: &str) -> bool {
         || config.copilot.model_for_alias(target).is_some()
 }
 
-fn validate_routing_policies(config: &Config, alias_name_re: &Regex) -> Result<(), String> {
+pub(crate) fn validate_routing_policies(
+    config: &Config,
+    alias_name_re: &Regex,
+) -> Result<(), String> {
     if config.routing_policies.len() > 128 {
         return Err("too many routing policies".into());
     }
     for (name, policy) in &config.routing_policies {
+        if (policy.mode == RoutingMode::Shadow && policy.default_target.is_none())
+            || policy.version.as_ref().is_some_and(|version| {
+                version.is_empty()
+                    || version.len() > 64
+                    || !version
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+            })
+        {
+            return Err("invalid routing mode or version".into());
+        }
         let decision_targets: HashSet<_> = policy.decision_targets.iter().collect();
         if policy.rules.len() > 128
             || policy.decision_targets.len() > 16
@@ -1165,11 +1289,18 @@ fn validate_routing_policies(config: &Config, alias_name_re: &Regex) -> Result<(
     Ok(())
 }
 
-pub fn load(path: &Path) -> Result<Policy, String> {
-    let text = fs::read_to_string(path).map_err(|e| format!("config read: {e}"))?;
-    let mut config: Config =
-        serde_yaml::from_str(&text).map_err(|e| format!("config parse: {e}"))?;
+pub(crate) fn validate_provider_identity(config: &Config) -> Result<(), String> {
     config.codex.validate()?;
+    validate_provider_aliases(config)
+}
+
+// Offline validates the same provider shape and identities without storage probes.
+pub(crate) fn validate_provider_config_pure(config: &Config) -> Result<(), String> {
+    config.codex.validate_pure()?;
+    validate_provider_aliases(config)
+}
+
+fn validate_provider_aliases(config: &Config) -> Result<(), String> {
     config.copilot.validate()?;
     config.hindsight.validate()?;
     if config
@@ -1186,6 +1317,14 @@ pub fn load(path: &Path) -> Result<Policy, String> {
     {
         return Err("Cloud provider alias and route identity must be exclusive".into());
     }
+    Ok(())
+}
+
+pub fn load(path: &Path) -> Result<Policy, String> {
+    let text = fs::read_to_string(path).map_err(|e| format!("config read: {e}"))?;
+    let mut config: Config =
+        serde_yaml::from_str(&text).map_err(|e| format!("config parse: {e}"))?;
+    validate_provider_identity(&config)?;
     let key_snapshot = if let Some(path) = &config.key_store {
         if !config.credentials.is_empty() || !Path::new(path).is_absolute() {
             return Err("key_store requires an absolute path and no legacy credentials".into());
@@ -1702,6 +1841,7 @@ rules:
         )
         .unwrap();
         let stream = super::RoutingRequestShape {
+            user_text: None,
             endpoint: super::RoutingEndpoint::Chat,
             stream: true,
             tools: false,

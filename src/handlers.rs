@@ -1,9 +1,16 @@
 use super::*;
 
-pub(super) async fn chat(
+pub(super) async fn chat(state: State<Arc<Runtime>>, headers: HeaderMap, body: Bytes) -> Response {
+    let runtime = state.0.clone();
+    let mut selection = None;
+    let response = chat_inner(state, headers, body, &mut selection).await;
+    model_routing::finish_response(&runtime, selection.as_ref(), response)
+}
+async fn chat_inner(
     State(runtime): State<Arc<Runtime>>,
     headers: HeaderMap,
     body: Bytes,
+    selection: &mut Option<model_routing::Selection>,
 ) -> Response {
     runtime.requests.fetch_add(1, Ordering::Relaxed);
     let credential = match authorize(&runtime, &headers).await {
@@ -61,7 +68,8 @@ pub(super) async fn chat(
         Ok(target) => target,
         Err(error) => return error,
     } {
-        alias_name = target;
+        alias_name = target.target.clone();
+        *selection = Some(target);
         request["model"] = Value::String(alias_name.clone());
     }
     if let Some(endpoint) = runtime
@@ -225,9 +233,20 @@ pub(super) async fn chat(
 }
 
 pub(super) async fn responses(
+    state: State<Arc<Runtime>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let runtime = state.0.clone();
+    let mut selection = None;
+    let response = responses_inner(state, headers, body, &mut selection).await;
+    model_routing::finish_response(&runtime, selection.as_ref(), response)
+}
+async fn responses_inner(
     State(runtime): State<Arc<Runtime>>,
     headers: HeaderMap,
     body: Bytes,
+    selection: &mut Option<model_routing::Selection>,
 ) -> Response {
     runtime.requests.fetch_add(1, Ordering::Relaxed);
     let credential = match authorize(&runtime, &headers).await {
@@ -283,7 +302,8 @@ pub(super) async fn responses(
         Ok(target) => target,
         Err(error) => return error,
     } {
-        alias_name = target;
+        alias_name = target.target.clone();
+        *selection = Some(target);
         request["model"] = Value::String(alias_name.clone());
     }
     if let Some(endpoint) = runtime

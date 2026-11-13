@@ -3,6 +3,10 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 pub(crate) const BUILD: &str = env!("SLOTLINE_SOURCE_SHA256");
+pub(crate) fn routing_projection(policy: &crate::config::RoutingPolicy) -> Value {
+    let rules: Vec<_> = policy.rules.iter().map(|rule| json!({"id":rule.id,"target":rule.target,"when":{"user_text":rule.predicate.user_text,"credential_classes":rule.predicate.credential_classes,"endpoints":rule.predicate.endpoints.iter().map(|endpoint| match endpoint {crate::config::RoutingEndpoint::Chat=>"chat",crate::config::RoutingEndpoint::Responses=>"responses"}).collect::<Vec<_>>(),"stream":rule.predicate.stream,"tools":rule.predicate.tools,"image":rule.predicate.image,"min_input_bytes":rule.predicate.min_input_bytes,"max_input_bytes":rule.predicate.max_input_bytes}})).collect();
+    json!({"mode":policy.mode,"version":policy.version,"rules":rules,"decision_model":policy.decision_model,"decision_targets":policy.decision_targets,"decision_timeout_seconds":policy.decision_timeout_seconds,"decision_prompt_sha256":format!("{:x}", Sha256::digest(policy.decision_prompt.as_bytes())),"default_target":policy.default_target})
+}
 pub(crate) fn projection(config: &Config) -> Value {
     let routes: Vec<_> = config.routes.iter().map(|route| {
         let destination = reqwest::Url::parse(&route.base_url).ok().map(|url| json!([url.scheme(), url.host_str(), url.port_or_known_default(), url.path()]));
@@ -12,17 +16,18 @@ pub(crate) fn projection(config: &Config) -> Value {
         let routes: Vec<_> = alias.routes.iter().map(|route| json!({"route":route.route,"priority":route.priority,"fallback_only":route.fallback_only,"enabled":route.enabled})).collect();
         (name.clone(),json!({"context_limit":alias.context_limit,"endpoint":match alias.endpoint {Endpoint::Chat=>"chat",Endpoint::Embedding=>"embedding"},"passthrough_route":alias.passthrough_route,"routes":routes,"capabilities":alias.capabilities,"streaming":alias.streaming}))
     }).collect();
-    let routing_policies: serde_json::Map<String, Value> = config.routing_policies.iter().map(|(name, policy)| {
-        let rules: Vec<_> = policy.rules.iter().map(|rule| json!({"id":rule.id,"target":rule.target,"when":{"credential_classes":rule.predicate.credential_classes,"endpoints":rule.predicate.endpoints.iter().map(|endpoint| match endpoint {crate::config::RoutingEndpoint::Chat=>"chat",crate::config::RoutingEndpoint::Responses=>"responses"}).collect::<Vec<_>>(),"stream":rule.predicate.stream,"tools":rule.predicate.tools,"image":rule.predicate.image,"min_input_bytes":rule.predicate.min_input_bytes,"max_input_bytes":rule.predicate.max_input_bytes}})).collect();
-        (name.clone(), json!({"rules":rules,"decision_model":policy.decision_model,"decision_targets":policy.decision_targets,"decision_timeout_seconds":policy.decision_timeout_seconds,"decision_prompt_sha256":format!("{:x}", Sha256::digest(policy.decision_prompt.as_bytes())),"default_target":policy.default_target}))
-    }).collect();
+    let routing_policies: serde_json::Map<String, Value> = config
+        .routing_policies
+        .iter()
+        .map(|(name, policy)| (name.clone(), routing_projection(policy)))
+        .collect();
     let budgets: serde_json::Map<String, Value> = config.class_timeout_budgets.iter().map(|(name,budget)| (name.clone(),json!({"attempt_seconds":budget.attempt_seconds,"total_seconds":budget.total_seconds,"min_retry_seconds":budget.min_retry_seconds,"first_output_seconds":budget.first_output_seconds,"stream_idle_seconds":budget.stream_idle_seconds}))).collect();
     let credentials: Vec<_> = config.credentials.iter().map(|credential| json!({"class":credential.class,"aliases":credential.aliases,"allowed_routes":credential.allowed_routes,"cloud_allowed":credential.cloud_allowed,"requests_per_minute":credential.requests_per_minute,"burst":credential.burst,"max_in_flight":credential.max_in_flight,"agent_affinity":credential.agent_affinity,"operator":credential.operator,"expires_at":credential.expires_at})).collect();
     let matchers: Vec<_> = config.metadata_matchers.iter().map(|matcher| json!({"class":matcher.class,"source":match matcher.source {MatcherSource::UserAgent=>"user_agent",MatcherSource::CredentialName=>"credential_name"}})).collect();
     let copilot_models: serde_json::Map<String, Value> = config.copilot.models.iter().map(|model| {
         (model.alias.clone(), json!({"model":model.model,"endpoint":match model.endpoint {CopilotEndpoint::ChatCompletions=>"chat_completions",CopilotEndpoint::Responses=>"responses"}}))
     }).collect();
-    json!({"schema":4,"hindsight":{"enabled":config.hindsight.enabled,"endpoint":config.hindsight.endpoint,"timeout_ms":config.hindsight.timeout_ms,"bindings":config.hindsight.bindings},"codex":{"enabled":config.codex.enabled,"alias":config.codex.alias,"model":config.codex.model,"auth_base_url":config.codex.auth_base_url(),"responses_url":config.codex.responses_url()},"copilot":{"enabled":config.copilot.enabled,"models":copilot_models},"routes":routes,"aliases":aliases,"routing_policies":routing_policies,"class_timeout_budgets":budgets,"retry":{"max_attempts":config.retry_policy.max_attempts,"total_seconds":config.retry_policy.total_seconds},"refresh_seconds":config.refresh_seconds,"affinity_lease_seconds":config.affinity_lease_seconds,"credentials":credentials,"matcher_categories":matchers})
+    json!({"schema":5,"hindsight":{"enabled":config.hindsight.enabled,"endpoint":config.hindsight.endpoint,"timeout_ms":config.hindsight.timeout_ms,"bindings":config.hindsight.bindings},"codex":{"enabled":config.codex.enabled,"alias":config.codex.alias,"model":config.codex.model,"auth_base_url":config.codex.auth_base_url(),"responses_url":config.codex.responses_url()},"copilot":{"enabled":config.copilot.enabled,"models":copilot_models},"routes":routes,"aliases":aliases,"routing_policies":routing_policies,"class_timeout_budgets":budgets,"retry":{"max_attempts":config.retry_policy.max_attempts,"total_seconds":config.retry_policy.total_seconds},"refresh_seconds":config.refresh_seconds,"affinity_lease_seconds":config.affinity_lease_seconds,"credentials":credentials,"matcher_categories":matchers})
 }
 pub(crate) fn digest(config: &Config) -> String {
     format!(
@@ -30,8 +35,22 @@ pub(crate) fn digest(config: &Config) -> String {
         Sha256::digest(serde_json::to_vec(&projection(config)).expect("nonsecret policy"))
     )
 }
+pub(crate) fn routing_status(config: &Config) -> Value {
+    let policies: serde_json::Map<String, Value> = config
+        .routing_policies
+        .iter()
+        .map(|(name, policy)| {
+            (
+                name.clone(),
+                json!({"mode":policy.mode,"version":policy.version,
+            "policy_sha256":crate::model_routing::policy_hash(config,name)}),
+            )
+        })
+        .collect();
+    Value::Object(policies)
+}
 pub(crate) fn status(runtime: &crate::Runtime) -> Value {
-    json!({"build_source_sha256":BUILD,"build_source_revision":env!("SLOTLINE_SOURCE_REVISION"),"build_source_state":env!("SLOTLINE_SOURCE_STATE"),"policy_sha256":runtime.policy_digest,"policy_generation":runtime.policy_generation,"sink":crate::audit_sink::COUNTERS.snapshot(),"metrics":runtime.audit_metrics.snapshot()})
+    json!({"build_source_sha256":BUILD,"build_source_revision":env!("SLOTLINE_SOURCE_REVISION"),"build_source_state":env!("SLOTLINE_SOURCE_STATE"),"policy_sha256":runtime.policy_digest,"policy_generation":runtime.policy_generation,"routing_policies":routing_status(&runtime.policy.config),"sink":crate::audit_sink::COUNTERS.snapshot(),"metrics":runtime.audit_metrics.snapshot()})
 }
 
 #[cfg(test)]

@@ -538,9 +538,16 @@ async fn models(State(runtime): State<Arc<Runtime>>, headers: HeaderMap) -> Resp
                 .is_some_and(target_is_usable)
         };
         if credential.aliases.contains(name)
-            && (policy.rules.iter().any(rule_is_usable) || unmatched_is_usable)
+            && (if policy.mode == config::RoutingMode::Shadow {
+                policy
+                    .default_target
+                    .as_deref()
+                    .is_some_and(target_is_usable)
+            } else {
+                policy.rules.iter().any(rule_is_usable) || unmatched_is_usable
+            })
         {
-            models.push(json!({"id":name,"object":"model","created":0,"owned_by":"slotline-routing","model_info":{"mode":"routing"}}));
+            models.push(json!({"id":name,"object":"model","created":0,"owned_by":"slotline-routing","model_info":{"mode":"routing","routing_mode":policy.mode,"routing_version":policy.version,"routing_policy_sha256":model_routing::policy_hash(&runtime.policy.config,name)}}));
         }
     }
     if copilot::eligible(&credential, &runtime.policy.config.copilot) {
@@ -575,6 +582,8 @@ async fn models(State(runtime): State<Arc<Runtime>>, headers: HeaderMap) -> Resp
 }
 
 mod model_routing;
+mod routing_cli;
+mod routing_plan;
 use model_routing::policy_target;
 mod routing;
 use routing::*;
@@ -614,13 +623,24 @@ async fn current_metrics(State(app): State<Arc<AppState>>, headers: HeaderMap) -
     metrics(State(app.current()), headers).await
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|arg| arg == "routing") {
+        if args
+            .get(1)
+            .is_some_and(|arg| arg == "explain" || arg == "evaluate-selection")
+        {
+            return routing_cli::run_cli(&args[1..]);
+        }
         adaptive::run_cli(&args[1..])?;
         return Ok(());
     }
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run(args))
+}
+async fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
     if args.first().is_some_and(|arg| arg == "hindsight") {
         return hindsight::run(&args[1..]).await;
     }
@@ -745,3 +765,5 @@ mod tests;
 
 #[cfg(test)]
 mod hindsight_tests;
+#[cfg(test)]
+mod routing_planner_tests;
