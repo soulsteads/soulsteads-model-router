@@ -771,11 +771,33 @@ pub(crate) async fn forward(
     Response::from_parts(parts, Body::from_stream(stream))
 }
 
+// Shared exact pure projection, including one-level extra_body and stream typing.
+#[allow(clippy::result_large_err)]
+pub(crate) fn project_request(
+    original: &Value,
+    chat: bool,
+) -> Result<(Value, bool, bool), Response> {
+    let mut request = original.clone();
+    normalize_extra_body(&mut request, false)?;
+    let stream = match request.get("stream") {
+        None => false,
+        Some(value) => value.as_bool().ok_or_else(invalid)?,
+    };
+    let include_usage = request["stream_options"]["include_usage"] == true;
+    let body = if chat {
+        chat_request(&request)?
+    } else {
+        request
+    };
+    native_request(&body)?;
+    Ok((body, stream, include_usage))
+}
+
 async fn forward_inner(
     runtime: Arc<Runtime>,
     credential: Arc<CredentialState>,
     headers: HeaderMap,
-    mut request: Value,
+    request: Value,
     chat: bool,
     class_permit: OwnedSemaphorePermit,
 ) -> Response {
@@ -793,28 +815,10 @@ async fn forward_inner(
     if let Err(error) = affinity_key(&headers, &credential, &name) {
         return error;
     }
-    if let Err(error) = normalize_extra_body(&mut request, false) {
-        return error;
-    }
-    let stream = match request.get("stream") {
-        None => false,
-        Some(value) => match value.as_bool() {
-            Some(value) => value,
-            None => return invalid(),
-        },
+    let (mut body, stream, include_usage) = match project_request(&request, chat) {
+        Ok(prepared) => prepared,
+        Err(error) => return error,
     };
-    let include_usage = request["stream_options"]["include_usage"] == true;
-    let mut body = if chat {
-        match chat_request(&request) {
-            Ok(body) => body,
-            Err(error) => return error,
-        }
-    } else {
-        request
-    };
-    if let Err(error) = native_request(&body) {
-        return error;
-    }
     let permit = match runtime.codex_semaphore.clone().try_acquire_owned() {
         Ok(permit) => permit,
         Err(_) => {

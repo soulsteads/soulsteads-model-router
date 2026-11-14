@@ -32,6 +32,7 @@ fn transport_headers(headers: &HeaderMap) -> HeaderMap {
         .filter(|(name, _)| {
             let name = name.as_str();
             !blocked.contains(name)
+                && !name.starts_with("x-slotline-routing-")
                 && !name.contains("api-key")
                 && !name.contains("apikey")
                 && !name.contains("token")
@@ -311,6 +312,22 @@ mod tests {
     use super::*;
     use axum::{Router, routing::post};
     use tokio::net::TcpListener;
+    #[test]
+    fn routing_provenance_cannot_transit_passthrough_headers() {
+        let mut headers = HeaderMap::new();
+        for name in [
+            "x-slotline-routing-mode",
+            "x-slotline-routing-policy-sha256",
+            "x-slotline-routing-unknown",
+        ] {
+            headers.insert(name, HeaderValue::from_static("spoofed"));
+        }
+        headers.insert("content-type", HeaderValue::from_static("application/json"));
+        let clean = transport_headers(&headers);
+        assert_eq!(clean.len(), 1);
+        assert_eq!(clean["content-type"], "application/json");
+    }
+
     #[tokio::test]
     async fn forwards_unmodified_response_status_type_and_bytes_without_credentials_leaking() {
         let upstream = Router::new().route(

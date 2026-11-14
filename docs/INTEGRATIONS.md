@@ -5,9 +5,8 @@ not installed automatically, and their external binaries, model assets, and
 project versions need separate verification.
 
 - `scripts/install_qwen_tokenizer.sh` attempts to fetch a checksum-pinned Qwen
-  tokenizer. The pinned external URL returned HTTP 401 during public-release
-  preparation; do not assume anonymous download access. The minimal setup does
-  not require it. Do not substitute another tokenizer without validating model
+  tokenizer. Verify access to the pinned external asset; authentication or
+  entitlement may be required. The minimal setup does not require it. Do not substitute another tokenizer without validating model
   compatibility and pinning its bytes. Set `TOKENIZER_DEST` to an absolute
   destination to override the XDG default.
   It replaces that destination; preserve an existing tokenizer first. Add the

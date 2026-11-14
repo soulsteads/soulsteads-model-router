@@ -7,46 +7,7 @@ pub(crate) fn target_usable(
     target: &str,
     endpoint: config::RoutingEndpoint,
 ) -> bool {
-    if !credential.aliases.iter().any(|alias| alias == target) {
-        return false;
-    }
-    if runtime.policy.config.codex.alias.as_deref() == Some(target) {
-        return codex::eligible(credential, &runtime.policy.config.codex);
-    }
-    if let Some(model) = runtime.policy.config.copilot.model_for_alias(target) {
-        return copilot::eligible(credential, &runtime.policy.config.copilot)
-            && matches!(
-                (endpoint, model.endpoint),
-                (
-                    config::RoutingEndpoint::Chat,
-                    config::CopilotEndpoint::ChatCompletions
-                ) | (
-                    config::RoutingEndpoint::Responses,
-                    config::CopilotEndpoint::Responses
-                )
-            );
-    }
-    runtime
-        .policy
-        .config
-        .aliases
-        .get(target)
-        .is_some_and(|alias| {
-            alias.endpoint == Endpoint::Chat
-                && alias.passthrough_route.is_none()
-                && (endpoint != config::RoutingEndpoint::Responses
-                    || alias.capabilities.iter().any(|c| c == "responses"))
-                && alias.routes.iter().any(|entry| {
-                    entry.enabled
-                        && (credential.allowed_routes.is_empty()
-                            || credential.allowed_routes.contains(&entry.route))
-                        && runtime
-                            .policy
-                            .routes
-                            .iter()
-                            .any(|route| route.config.name == entry.route && route.config.enabled)
-                })
-        })
+    crate::routing_plan::target_usable(&runtime.policy.config, credential, target, endpoint)
 }
 
 fn local_target_fits_request(
@@ -54,76 +15,21 @@ fn local_target_fits_request(
     credential: &config::Credential,
     target: &str,
     endpoint: config::RoutingEndpoint,
-    normalized_request: &Value,
+    original_request: &Value,
 ) -> bool {
-    let Some(alias) = runtime.policy.config.aliases.get(target) else {
-        // Native Codex and Copilot targets retain their established grant and
-        // endpoint preflight; this helper only filters managed local aliases.
-        return true;
-    };
-    let mut request = normalized_request.clone();
-    request["model"] = Value::String(target.to_owned());
-    let default_thinking = alias
-        .routes
-        .iter()
-        .filter(|entry| entry.enabled)
-        .filter_map(|entry| {
-            runtime
-                .policy
-                .routes
-                .iter()
-                .find(|route| route.config.name == entry.route)
-        })
-        .any(|route| route.config.enabled && !route.config.disable_thinking);
-    let tokenizer = runtime
-        .policy
-        .tokenizers
-        .get(target)
-        .map(|tokenizer| tokenizer.as_ref());
-    let (stream, required_context, needs) = match endpoint {
-        config::RoutingEndpoint::Chat => {
-            let Ok((stream, _, required_context, needs)) =
-                validate_request(&request, alias, tokenizer, default_thinking)
-            else {
-                return false;
-            };
-            (stream, required_context, needs)
-        }
-        config::RoutingEndpoint::Responses => {
-            let Ok((
-                stream,
-                required_context,
-                needs_tools,
-                needs_responses_json_schema,
-                needs_responses_json_object,
-            )) = validate_responses_request(&request, alias, tokenizer, default_thinking)
-            else {
-                return false;
-            };
-            (
-                stream,
-                required_context,
-                RequestCapabilities {
-                    tools: needs_tools,
-                    responses: true,
-                    responses_json_schema: needs_responses_json_schema,
-                    responses_json_object: needs_responses_json_object,
-                    ..Default::default()
-                },
-            )
-        }
-    };
-    alias.routes.iter().any(|entry| {
-        entry.enabled
-            && (credential.allowed_routes.is_empty()
-                || credential.allowed_routes.contains(&entry.route))
-            && runtime.policy.routes.iter().any(|route| {
-                route.config.name == entry.route
-                    && route.config.enabled
-                    && required_context <= route.config.context_limit
-                    && routing::missing_capabilities(&route.config, stream, needs).is_empty()
-            })
-    })
+    crate::routing_plan::request_fits_on_routes(
+        &runtime.policy.config,
+        credential,
+        target,
+        endpoint,
+        original_request,
+        runtime
+            .policy
+            .tokenizers
+            .get(target)
+            .map(|tokenizer| tokenizer.as_ref()),
+        runtime.policy.routes.iter().map(|route| &route.config),
+    )
 }
 
 fn failure(status: StatusCode, code: &'static str) -> Response {
@@ -142,91 +48,66 @@ pub(crate) async fn policy_target(
     endpoint: config::RoutingEndpoint,
     request: &Value,
     input_bytes: usize,
-) -> Result<Option<String>, Response> {
+) -> Result<Option<Selection>, Response> {
     let Some(policy) = runtime.policy.config.routing_policies.get(requested) else {
         return Ok(None);
     };
-    // Interpret the same merged request that the concrete handler validates.
-    let mut normalized = request.clone();
-    normalize_extra_body(&mut normalized, true)?;
-    if normalized
-        .get("stream")
-        .is_some_and(|value| !value.is_boolean())
-        || normalized
-            .get("tools")
-            .is_some_and(|value| !value.is_array())
-    {
-        return Err(failure(StatusCode::BAD_REQUEST, "invalid_request"));
-    }
-    let data = match endpoint {
-        config::RoutingEndpoint::Chat => normalized.get("messages"),
-        config::RoutingEndpoint::Responses => normalized.get("input"),
-    };
-    if data.is_none() {
-        return Err(failure(StatusCode::BAD_REQUEST, "invalid_request"));
-    }
-    fn has_image(value: &Value) -> bool {
-        match value {
-            Value::Object(object) => {
-                object
-                    .get("type")
-                    .and_then(Value::as_str)
-                    .is_some_and(|kind| matches!(kind, "image_url" | "input_image"))
-                    || object.values().any(has_image)
-            }
-            Value::Array(items) => items.iter().any(has_image),
-            _ => false,
-        }
-    }
-    let shape = config::RoutingRequestShape {
-        endpoint,
-        stream: normalized
-            .get("stream")
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
-        tools: normalized
-            .get("tools")
-            .and_then(Value::as_array)
-            .is_some_and(|items| !items.is_empty()),
-        image: data.is_some_and(has_image),
-        input_bytes,
-    };
-    let rule = policy
-        .rules
-        .iter()
-        .find(|rule| rule.predicate.matches(&credential.class, shape));
-    let (target, reason) = if let Some(target) = policy.rule_target(&credential.class, shape) {
-        (target.to_owned(), "rule")
-    } else if let Some(model) = &policy.decision_model {
-        (
-            decide(runtime, credential, policy, model, endpoint, &normalized).await?,
+    let inspection = crate::routing_plan::inspect(request, endpoint, input_bytes)
+        .map_err(|code| failure(StatusCode::BAD_REQUEST, code))?;
+    let plan = crate::routing_plan::plan(
+        &runtime.policy.config,
+        &credential.config,
+        requested,
+        &inspection,
+        |target| local_target_fits_request(runtime, &credential.config, target, endpoint, request),
+    )
+    .map_err(plan_failure)?;
+    let (target, reason, rule, advisory) = match plan {
+        crate::routing_plan::Plan::Selected {
+            target,
+            reason,
+            rule,
+            advisory,
+        } => (target, reason, rule, advisory),
+        crate::routing_plan::Plan::Judge { candidates } => (
+            decide(
+                runtime,
+                credential,
+                policy,
+                policy.decision_model.as_deref().expect("judge plan"),
+                &inspection.normalized,
+                &candidates,
+            )
+            .await?,
             "decision",
-        )
-    } else if let Some(target) = &policy.default_target {
-        (target.clone(), "default")
-    } else {
-        return Err(failure(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "no_routing_target",
-        ));
+            None,
+            None,
+        ),
     };
-    if !target_usable(runtime, &credential.config, &target, endpoint) {
-        return Err(failure(StatusCode::FORBIDDEN, "model_not_allowed"));
-    }
     info!(
         policy = crate::audit::label(requested),
         target = crate::audit::label(&target),
-        rule = rule.map(|rule| crate::audit::label(&rule.id)),
+        rule = rule.as_deref().map(crate::audit::label),
         reason,
         "routing policy selected"
     );
-    Ok(Some(target))
+    Ok(Some(Selection {
+        target,
+        reason,
+        rule,
+        advisory,
+        mode: policy.mode,
+        version: policy.version.clone(),
+        hash: policy_hash(&runtime.policy.config, requested),
+    }))
 }
-
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Decision {
-    target: String,
+fn plan_failure(code: &'static str) -> Response {
+    let status = match code {
+        "decision_input_too_large" => StatusCode::PAYLOAD_TOO_LARGE,
+        "no_routing_target" => StatusCode::SERVICE_UNAVAILABLE,
+        _ => StatusCode::FORBIDDEN,
+    };
+    failure(status, code)
 }
 
 #[allow(clippy::result_large_err)]
@@ -235,41 +116,10 @@ async fn decide(
     credential: &CredentialState,
     policy: &config::RoutingPolicy,
     model: &str,
-    endpoint: config::RoutingEndpoint,
     request: &Value,
+    candidates: &[String],
 ) -> Result<String, Response> {
-    if !target_usable(
-        runtime,
-        &credential.config,
-        model,
-        config::RoutingEndpoint::Chat,
-    ) {
-        return Err(failure(StatusCode::FORBIDDEN, "decision_not_allowed"));
-    }
-    let candidates: Vec<_> = policy
-        .decision_targets
-        .iter()
-        .filter(|target| target_usable(runtime, &credential.config, target, endpoint))
-        .collect();
-    if candidates.is_empty() {
-        return Err(failure(StatusCode::FORBIDDEN, "model_not_allowed"));
-    }
     let input = serde_json::to_string(request).expect("JSON request");
-    if input.len() > 32768 {
-        return Err(failure(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "decision_input_too_large",
-        ));
-    }
-    let candidates: Vec<_> = candidates
-        .into_iter()
-        .filter(|target| {
-            local_target_fits_request(runtime, &credential.config, target, endpoint, request)
-        })
-        .collect();
-    if candidates.is_empty() {
-        return Err(failure(StatusCode::FORBIDDEN, "model_not_allowed"));
-    }
     let alias = &runtime.policy.config.aliases[model];
     let judge_request = json!({
         "model":model,"stream":false,"max_tokens":128,
@@ -325,33 +175,154 @@ async fn decide(
     };
     runtime.route_completions[idx].fetch_add(1, Ordering::Relaxed);
     mark_success(runtime, idx);
-    let choices = payload["choices"]
-        .as_array()
-        .filter(|choices| choices.len() == 1)
-        .ok_or_else(|| failure(StatusCode::BAD_GATEWAY, "invalid_decision"))?;
-    let choice = &choices[0];
-    let message = &choice["message"];
-    if choice["finish_reason"] != "stop"
-        || message.get("tool_calls").is_some_and(|value| {
-            !value.is_null() && value.as_array().is_none_or(|calls| !calls.is_empty())
-        })
-        || message
-            .get("function_call")
-            .is_some_and(|value| !value.is_null())
-    {
-        return Err(failure(StatusCode::BAD_GATEWAY, "invalid_decision"));
+    crate::routing_plan::parse_decision(&payload, candidates)
+        .map_err(|code| failure(StatusCode::BAD_GATEWAY, code))
+}
+
+pub(crate) struct Selection {
+    pub target: String,
+    reason: &'static str,
+    rule: Option<String>,
+    advisory: Option<String>,
+    mode: config::RoutingMode,
+    version: Option<String>,
+    hash: String,
+}
+pub(crate) fn policy_hash(config: &config::Config, name: &str) -> String {
+    let projection = json!({"schema":1,"alias":name,
+        "policy":crate::audit_identity::routing_projection(&config.routing_policies[name])});
+    format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(&projection).expect("policy projection"))
+    )
+}
+pub(crate) fn finish_response(
+    runtime: &Runtime,
+    selection: Option<&Selection>,
+    mut response: Response,
+) -> Response {
+    let names: Vec<_> = response
+        .headers()
+        .keys()
+        .filter(|name| name.as_str().starts_with("x-slotline-routing-"))
+        .cloned()
+        .collect();
+    for name in names {
+        response.headers_mut().remove(name);
     }
-    let content = message["content"]
-        .as_str()
-        .filter(|content| content.len() <= 1024)
-        .ok_or_else(|| failure(StatusCode::BAD_GATEWAY, "invalid_decision"))?;
-    let decision: Decision = serde_json::from_str(content)
-        .map_err(|_| failure(StatusCode::BAD_GATEWAY, "invalid_decision"))?;
-    if !candidates
-        .iter()
-        .any(|candidate| **candidate == decision.target)
-    {
-        return Err(failure(StatusCode::BAD_GATEWAY, "invalid_decision"));
+    if let Some(selection) = selection {
+        let mut insert = |name: &'static str, value: &str| {
+            response.headers_mut().insert(
+                name,
+                HeaderValue::from_str(value).expect("bounded derived routing header"),
+            );
+        };
+        insert("x-slotline-routing-policy-sha256", &selection.hash);
+        insert("x-slotline-routing-config-sha256", &runtime.policy_digest);
+        insert(
+            "x-slotline-routing-generation",
+            &runtime.policy_generation.to_string(),
+        );
+        insert("x-slotline-routing-mode", selection.mode.name());
+        insert("x-slotline-routing-reason", selection.reason);
+        if let Some(version) = &selection.version {
+            insert("x-slotline-routing-version", version);
+        }
+        for (name, value) in [
+            ("x-slotline-routing-rule-sha256", selection.rule.as_ref()),
+            (
+                "x-slotline-routing-advisory-sha256",
+                selection.advisory.as_ref(),
+            ),
+        ] {
+            if let Some(value) = value {
+                insert(name, &format!("{:x}", Sha256::digest(value.as_bytes())));
+            }
+        }
     }
-    Ok(decision.target)
+    response
+}
+
+#[cfg(test)]
+mod provenance_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn routing_provenance_is_bounded_header_safe_and_replaces_all_upstream_values() {
+        let config: config::Config = serde_json::from_value(json!({
+            "bind":"100.127.255.254","port":4000,"routes":[],"aliases":{},
+            "routing_policies":{"smart":{"default_target":"synthetic"}}
+        }))
+        .unwrap();
+        let policy = config::Policy {
+            config,
+            credentials: vec![],
+            routes: vec![],
+            matchers: vec![],
+            tokenizers: HashMap::new(),
+            key_snapshot: None,
+        };
+        let app = AppState::new(PathBuf::from("synthetic-unused-policy.json"), policy).unwrap();
+        let runtime = app.current();
+        let selection = Selection {
+            target: "synthetic".into(),
+            reason: "rule",
+            rule: Some("λ rule with spaces".into()),
+            advisory: None,
+            mode: config::RoutingMode::Active,
+            version: Some("v".repeat(64)),
+            hash: "a".repeat(64),
+        };
+        let upstream = || {
+            let mut response = Response::new(Body::empty());
+            for name in [
+                "x-slotline-routing-mode",
+                "x-slotline-routing-policy-sha256",
+                "x-slotline-routing-unknown",
+                "x-slotline-routing-advisory-sha256",
+            ] {
+                response
+                    .headers_mut()
+                    .insert(name, HeaderValue::from_static("spoofed"));
+            }
+            response
+        };
+        let response = finish_response(&runtime, Some(&selection), upstream());
+        assert_eq!(response.headers()["x-slotline-routing-mode"], "active");
+        assert_eq!(
+            response.headers()["x-slotline-routing-config-sha256"],
+            runtime.policy_digest
+        );
+        assert_eq!(
+            response.headers()["x-slotline-routing-generation"],
+            runtime.policy_generation.to_string()
+        );
+        assert_eq!(
+            response.headers()["x-slotline-routing-rule-sha256"].len(),
+            64
+        );
+        assert!(
+            response
+                .headers()
+                .get("x-slotline-routing-advisory-sha256")
+                .is_none()
+        );
+        assert!(
+            response
+                .headers()
+                .get("x-slotline-routing-unknown")
+                .is_none()
+        );
+        for value in response.headers().values() {
+            assert!(value.len() <= 64 && value.as_bytes().iter().all(u8::is_ascii));
+            assert_ne!(value, "spoofed");
+        }
+        let response = finish_response(&runtime, None, upstream());
+        assert!(
+            !response
+                .headers()
+                .keys()
+                .any(|name| name.as_str().starts_with("x-slotline-routing-"))
+        );
+    }
 }

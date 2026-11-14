@@ -1217,3 +1217,113 @@ fn decision_authority_changes_policy_digest_and_requires_restart() {
         assert!(validate_reload(&original, &candidate).is_err());
     });
 }
+
+#[tokio::test]
+async fn routing_shadow_serves_baseline_once_without_judge_or_extra_rate_debit() {
+    let upstream = decision_upstream().await;
+    let fixture = fixture_with_policy(
+        &upstream,
+        json!({"mode":"shadow","version":"synthetic-v1",
+        "default_target":"target","decision_model":"judge","decision_targets":["target"],
+        "rules":[{"id":"λ advisory","target":"target","when":{"stream":false}}]}),
+    );
+    // Leave prompt headroom within the fixture's 4096-token context.
+    let request =
+        json!({"model":"smart","messages":[{"role":"user","content":"hello"}],"max_tokens":16});
+    let response = fixture
+        .router
+        .clone()
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header("authorization", format!("Bearer {WORKLOAD_KEY}"))
+                .header("content-type", "application/json")
+                .body(Body::from(request.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["x-slotline-routing-mode"], "shadow");
+    assert_eq!(
+        response.headers()["x-slotline-routing-version"],
+        "synthetic-v1"
+    );
+    axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    assert_eq!(
+        upstream.state.decision_calls.load(AtomicOrdering::Relaxed),
+        0
+    );
+    assert_eq!(upstream.state.target_calls.load(AtomicOrdering::Relaxed), 1);
+    let response = fixture
+        .router
+        .clone()
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header("authorization", format!("Bearer {WORKLOAD_KEY}"))
+                .header("content-type", "application/json")
+                .body(Body::from(request.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(upstream.state.target_calls.load(AtomicOrdering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn routing_shadow_denied_advisory_is_absent_and_denied_baseline_never_judges() {
+    for denied_baseline in [false, true] {
+        let upstream = decision_upstream().await;
+        let fixture = fixture_with_cloud_policy(
+            &upstream,
+            json!({"mode":"shadow",
+            "default_target":if denied_baseline {"cloud"}else{"target"},"decision_model":"judge","decision_targets":["target"],
+            "rules":[{"id":"cloud","target":"cloud","when":{"stream":false}}]}),
+            false,
+        );
+        let response = fixture
+            .router
+            .clone()
+            .oneshot(
+                Request::post("/v1/chat/completions")
+                    .header("authorization", format!("Bearer {WORKLOAD_KEY}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        // Leave prompt headroom within the fixture's 4096-token context.
+                        json!({"model":"smart","messages":[{"role":"user","content":"hello"}],"max_tokens":16})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            if denied_baseline {
+                StatusCode::FORBIDDEN
+            } else {
+                StatusCode::OK
+            }
+        );
+        assert!(
+            response
+                .headers()
+                .get("x-slotline-routing-advisory-sha256")
+                .is_none()
+        );
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        assert!(!String::from_utf8_lossy(&body).contains("cloud"));
+        assert_eq!(
+            upstream.state.decision_calls.load(AtomicOrdering::Relaxed),
+            0
+        );
+        assert_eq!(
+            upstream.state.target_calls.load(AtomicOrdering::Relaxed),
+            usize::from(!denied_baseline)
+        );
+    }
+}
