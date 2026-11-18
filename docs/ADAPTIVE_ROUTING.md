@@ -114,7 +114,8 @@ to stdout; redirect that output only to an appropriately scoped destination.
 
 The report is advisory. Its qualified set is not a new authorization source and
 must not be connected directly to `cloud_allowed`, credential aliases, native
-route grants, spend limits or tool permissions. It does not override current
+route grants, cost or usage limits an operator maintains elsewhere (the router
+has no spend limit) or tool permissions. It does not override current
 capability/context checks or make an otherwise unsupported request eligible.
 
 Do not run a user's tool-bearing request on several providers just to create

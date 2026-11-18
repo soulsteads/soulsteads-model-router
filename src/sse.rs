@@ -447,6 +447,29 @@ pub(super) fn validated_sse(
     alias: String,
     responses: bool,
 ) -> Body {
+    validated_sse_with_tools(
+        runtime,
+        route_idx,
+        route_permit,
+        class_permit,
+        prepared,
+        alias,
+        responses,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn validated_sse_with_tools(
+    runtime: Arc<Runtime>,
+    route_idx: usize,
+    route_permit: OwnedSemaphorePermit,
+    class_permit: OwnedSemaphorePermit,
+    prepared: PreparedStream,
+    alias: String,
+    responses: bool,
+    projection: Option<crate::responses_tools::ToolProjection>,
+) -> Body {
     let model = runtime.policy.routes[route_idx].config.model.clone();
     let needs_tail = responses && runtime.policy.routes[route_idx].config.responses_done_tail;
     let stream = async_stream::stream! {
@@ -458,6 +481,7 @@ pub(super) fn validated_sse(
         let mut saw_completed = false;
         let mut tools = ChatToolFragments::default();
         let mut saw_chat_choices = false;
+        let mut projection = projection.map(|p| p.stream());
         let failure = 'upstream: loop {
             if let Some(failure) = clock.as_ref().and_then(|clock| clock.failure_at(tokio::time::Instant::now())) { break failure; }
             let next = if let Some(clock) = &clock {
@@ -481,6 +505,11 @@ pub(super) fn validated_sse(
                 };
                 match normalize_event(event, &alias, &model, responses, needs_tail, &mut saw_completed, &mut tools) {
                     Ok((bytes, terminal, choice_bearing, progress)) => {
+                        let bytes = match projection.as_mut().map(|p| p.restore(bytes.clone())) {
+                            Some(Ok(bytes)) => bytes,
+                            Some(Err(reason)) => break 'upstream StreamFailure::Invalid(reason),
+                            None => bytes,
+                        };
                         if progress && let Some(clock) = &mut clock { clock.progress(tokio::time::Instant::now()); }
                         if terminal && !responses && !saw_chat_choices {
                             break 'upstream StreamFailure::Invalid("Chat terminal missing valid choices");
@@ -508,7 +537,9 @@ pub(super) fn validated_sse(
         runtime.upstream_errors.fetch_add(1, Ordering::Relaxed);
         crate::audit::backend("failed");
         if !failure.local_timeout() { mark_failure(&runtime, route_idx); }
-        warn!(route=%runtime.policy.routes[route_idx].config.name,error_category=failure.category(), "upstream stream failed");
+        // Only static validator reasons, never response bytes or tool arguments.
+        let validation_reason = match failure { StreamFailure::Invalid(reason) => Some(reason), _ => None };
+        warn!(route=%runtime.policy.routes[route_idx].config.name,error_category=failure.category(),validation_reason, "upstream stream failed");
         yield Err(io::Error::other(failure.category()));
     };
     Body::from_stream(stream)

@@ -7,8 +7,9 @@ model server, migrate an existing client, or replace another gateway.
 
 - Linux with Rust/Cargo supporting edition 2024 and a C toolchain for bundled
   native dependencies. Build with the checked-in `Cargo.lock`.
-- An assigned Tailnet IPv4 address in `100.64.0.0/10`. The current validator
-  rejects loopback, LAN, and wildcard listener binds, and reserves port `4001`.
+- An assigned Tailnet IPv4 address in `100.64.0.0/10`, or explicit loopback
+  mode for same-host clients (see below). LAN and wildcard binds are rejected;
+  port `4001` is reserved.
 - A running local OpenAI-compatible backend with `/v1/models` and
   `/v1/chat/completions`. Know its exact model ID and tested context/capacity.
 - Python 3 for the configuration preparation and client request examples.
@@ -184,4 +185,22 @@ proof of systemd hardening on every distribution.
 
 ## Synthetic address used in examples
 
-`100.127.255.254` is an intentionally synthetic Tailnet/CGNAT fixture address, not a configured deployment endpoint. Replace it with your own Tailnet IPv4 address when following these examples. Listener validation remains restricted to Tailnet IPv4 addresses.
+`100.127.255.254` is an intentionally synthetic Tailnet/CGNAT fixture address, not a configured deployment endpoint. Replace it with your own Tailnet IPv4 address when following these examples. This walkthrough uses the default Tailnet mode; see below for loopback mode.
+
+
+## Same-host deployment
+
+To serve only clients on the same machine, explicitly set:
+
+```yaml
+listener_mode: loopback
+bind: 127.0.0.1
+port: 8080
+```
+
+The default remains `listener_mode: tailnet`, requiring an explicit Tailnet IPv4
+address. Loopback mode accepts numeric loopback addresses only, including `::1`;
+LAN, Tailnet and wildcard binds are rejected in that mode. Bearer authentication,
+key grants, rate/capacity limits and qualification are identical in both modes.
+Changing listener mode/address/port requires a restart, never policy reload.
+Port 4001 remains reserved. This mode does not publish the service or migrate clients.

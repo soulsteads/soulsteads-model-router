@@ -167,12 +167,46 @@ pub(super) fn tokenized_prompt_with_tools(
     Some(count.saturating_add(32))
 }
 
+// Offline can defer only prompt sizing; reserve parsing and known bounds still apply.
+#[derive(Clone, Copy)]
+pub(crate) enum PromptSizing<'a> {
+    Estimate(Option<&'a Tokenizer>),
+    Deferred,
+}
+impl<'a> PromptSizing<'a> {
+    #[allow(clippy::result_large_err)]
+    fn tokens(
+        self,
+        estimate: impl FnOnce(Option<&'a Tokenizer>) -> Result<u64, Response>,
+    ) -> Result<u64, Response> {
+        match self {
+            Self::Estimate(tokenizer) => estimate(tokenizer),
+            Self::Deferred => Ok(0),
+        }
+    }
+}
+
 // Keep Axum Response as the direct validation error contract.
 #[allow(clippy::result_large_err)]
 pub(super) fn validate_request(
     value: &Value,
     alias: &config::Alias,
     tokenizer: Option<&Tokenizer>,
+    default_thinking: bool,
+) -> Result<(bool, u32, u32, RequestCapabilities), Response> {
+    validate_request_with_prompt_sizing(
+        value,
+        alias,
+        PromptSizing::Estimate(tokenizer),
+        default_thinking,
+    )
+}
+
+#[allow(clippy::result_large_err)]
+pub(crate) fn validate_request_with_prompt_sizing(
+    value: &Value,
+    alias: &config::Alias,
+    prompt_sizing: PromptSizing<'_>,
     default_thinking: bool,
 ) -> Result<(bool, u32, u32, RequestCapabilities), Response> {
     let object = value.as_object().ok_or_else(|| {
@@ -403,65 +437,69 @@ pub(super) fn validate_request(
             "Completion reserve exceeds alias context",
         ));
     }
-    let text_messages: Vec<Value> = messages
-        .iter()
-        .map(|message| {
-            let mut cleaned = message.clone();
-            if let Some(parts) = cleaned.get_mut("content").and_then(Value::as_array_mut) {
-                parts.retain(|part| part.get("type").and_then(Value::as_str) != Some("image_url"));
-            }
-            cleaned
-        })
-        .collect();
-    let messages_for_budget = if image_count > 0 {
-        text_messages.as_slice()
-    } else {
-        messages.as_slice()
-    };
-    let fallback_prompt = serde_json::to_vec(messages_for_budget)
-        .map_err(|_| {
-            json_error(
-                StatusCode::BAD_REQUEST,
-                "invalid_request",
-                "invalid messages",
-            )
-        })?
-        .len() as u64
-        + messages.len() as u64 * 8
-        + 64
-        + if uses_tools {
-            serde_json::to_vec(
+    let estimated_prompt = prompt_sizing.tokens(|tokenizer| {
+        let text_messages: Vec<Value> = messages
+            .iter()
+            .map(|message| {
+                let mut cleaned = message.clone();
+                if let Some(parts) = cleaned.get_mut("content").and_then(Value::as_array_mut) {
+                    parts.retain(|part| {
+                        part.get("type").and_then(Value::as_str) != Some("image_url")
+                    });
+                }
+                cleaned
+            })
+            .collect();
+        let messages_for_budget = if image_count > 0 {
+            text_messages.as_slice()
+        } else {
+            messages.as_slice()
+        };
+        let fallback_prompt = serde_json::to_vec(messages_for_budget)
+            .map_err(|_| {
+                json_error(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_request",
+                    "invalid messages",
+                )
+            })?
+            .len() as u64
+            + messages.len() as u64 * 8
+            + 64
+            + if uses_tools {
+                serde_json::to_vec(
                 &json!({"tools": object.get("tools"), "tool_choice": object.get("tool_choice")}),
             )
             .map(|bytes| bytes.len() as u64)
             .unwrap_or(0)
                 + 512
+            } else {
+                0
+            };
+        Ok(if uses_tools {
+            tokenizer.and_then(|t| {
+                tokenized_prompt_with_tools(
+                    messages_for_budget,
+                    object.get("tools"),
+                    object.get("tool_choice"),
+                    object.get("chat_template_kwargs"),
+                    t,
+                    default_thinking,
+                )
+            })
         } else {
-            0
-        };
-    let estimated_prompt = if uses_tools {
-        tokenizer.and_then(|t| {
-            tokenized_prompt_with_tools(
-                messages_for_budget,
-                object.get("tools"),
-                object.get("tool_choice"),
-                object.get("chat_template_kwargs"),
-                t,
-                default_thinking,
-            )
-        })
-    } else {
-        tokenizer.and_then(|t| {
-            tokenized_prompt(
-                messages_for_budget,
-                object.get("chat_template_kwargs"),
-                t,
-                default_thinking,
-            )
-        })
-    }
-    .unwrap_or(fallback_prompt)
-    .saturating_add(image_count * 16_384);
+            tokenizer.and_then(|t| {
+                tokenized_prompt(
+                    messages_for_budget,
+                    object.get("chat_template_kwargs"),
+                    t,
+                    default_thinking,
+                )
+            })
+        }
+        .unwrap_or(fallback_prompt)
+        .saturating_add(image_count * 16_384))
+    })?;
     if estimated_prompt.saturating_add(max) > alias.context_limit as u64 {
         return Err(json_error(
             StatusCode::BAD_REQUEST,
@@ -573,6 +611,21 @@ pub(super) fn validate_responses_request(
     request: &Value,
     alias: &config::Alias,
     tokenizer: Option<&Tokenizer>,
+    default_thinking: bool,
+) -> Result<(bool, u32, bool, bool, bool), Response> {
+    validate_responses_request_with_prompt_sizing(
+        request,
+        alias,
+        PromptSizing::Estimate(tokenizer),
+        default_thinking,
+    )
+}
+
+#[allow(clippy::result_large_err)]
+pub(crate) fn validate_responses_request_with_prompt_sizing(
+    request: &Value,
+    alias: &config::Alias,
+    prompt_sizing: PromptSizing<'_>,
     default_thinking: bool,
 ) -> Result<(bool, u32, bool, bool, bool), Response> {
     let object = request.as_object().ok_or_else(|| {
@@ -987,47 +1040,49 @@ pub(super) fn validate_responses_request(
             "Model does not support Responses JSON object",
         ));
     }
-    let fallback = serde_json::to_vec(&messages)
-        .map(|x| x.len() as u64 + 128)
-        .unwrap_or(u64::MAX);
-    let fallback = object
-        .get("tools")
-        .and_then(|tools| serde_json::to_vec(tools).ok())
-        .map(|tools| fallback.saturating_add(tools.len() as u64 + 512))
-        .unwrap_or(fallback);
-    let format_bytes = object
-        .get("text")
-        .and_then(|text| text.get("format"))
-        .and_then(|format| serde_json::to_vec(format).ok());
-    let fallback = format_bytes
-        .as_ref()
-        .map(|bytes| fallback.saturating_add(bytes.len() as u64 + 512))
-        .unwrap_or(fallback);
-    let estimated = tokenizer
-        .and_then(|t| {
-            tokenized_prompt_with_tools(
-                &messages,
-                object.get("tools"),
-                object.get("tool_choice"),
-                object.get("chat_template_kwargs"),
-                t,
-                default_thinking,
-            )
-        })
-        .map(|tokens| {
-            let format_tokens = format_bytes
-                .as_ref()
-                .and_then(|bytes| {
-                    tokenizer.and_then(|t| {
-                        t.encode(String::from_utf8_lossy(bytes).as_ref(), false)
-                            .ok()
+    let estimated = prompt_sizing.tokens(|tokenizer| {
+        let fallback = serde_json::to_vec(&messages)
+            .map(|x| x.len() as u64 + 128)
+            .unwrap_or(u64::MAX);
+        let fallback = object
+            .get("tools")
+            .and_then(|tools| serde_json::to_vec(tools).ok())
+            .map(|tools| fallback.saturating_add(tools.len() as u64 + 512))
+            .unwrap_or(fallback);
+        let format_bytes = object
+            .get("text")
+            .and_then(|text| text.get("format"))
+            .and_then(|format| serde_json::to_vec(format).ok());
+        let fallback = format_bytes
+            .as_ref()
+            .map(|bytes| fallback.saturating_add(bytes.len() as u64 + 512))
+            .unwrap_or(fallback);
+        Ok(tokenizer
+            .and_then(|t| {
+                tokenized_prompt_with_tools(
+                    &messages,
+                    object.get("tools"),
+                    object.get("tool_choice"),
+                    object.get("chat_template_kwargs"),
+                    t,
+                    default_thinking,
+                )
+            })
+            .map(|tokens| {
+                let format_tokens = format_bytes
+                    .as_ref()
+                    .and_then(|bytes| {
+                        tokenizer.and_then(|t| {
+                            t.encode(String::from_utf8_lossy(bytes).as_ref(), false)
+                                .ok()
+                        })
                     })
-                })
-                .map(|tokens| tokens.len() as u64 + 512)
-                .unwrap_or(0);
-            tokens.saturating_add(128).saturating_add(format_tokens)
-        })
-        .unwrap_or(fallback);
+                    .map(|tokens| tokens.len() as u64 + 512)
+                    .unwrap_or(0);
+                tokens.saturating_add(128).saturating_add(format_tokens)
+            })
+            .unwrap_or(fallback))
+    })?;
     let required = estimated.saturating_add(max);
     if required > alias.context_limit as u64 {
         return Err(json_error(

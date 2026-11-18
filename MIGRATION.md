@@ -22,6 +22,14 @@ Do not silently strip required fields, remap model identities, or enable an
 unverified capability to make a request pass. Stateful Responses continuation
 is not supported by managed routing.
 
+Codex CLI to a managed local Responses alias is qualified only as recorded in
+[qualification](docs/QUALIFICATION.md): one local model, flat function tools and
+Codex-known model slugs that send developer `additional_tools` and namespaced custom
+tools, on the recorded runtime revisions. Hosted tools, other local models and
+task-quality parity remain unqualified. This does not make the router a replacement
+for any existing routing path. Verify each capability your client requires before
+moving traffic.
+
 If a client also uses cloud models, retain its existing provider route for those
 calls. This gateway targets local inference servers, does not provide cloud
 subscriptions, and does not depend on LiteLLM.
@@ -31,7 +39,8 @@ subscriptions, and does not depend on LiteLLM.
 Follow [setup](docs/SETUP.md) on a separate listener. Keep the current gateway,
 credentials, and client configuration available for rollback. Do not take over
 port `4001`; the validator reserves it. The listener requires an assigned
-Tailnet IPv4 address and serves HTTP without built-in TLS.
+Tailnet IPv4 address by default. For same-host use, configure `listener_mode:
+loopback` explicitly. The gateway serves HTTP without built-in TLS.
 
 Use the backend's exact model ID, verified context/concurrency limits, and only
 capabilities qualified for that model and endpoint. Create a dedicated client

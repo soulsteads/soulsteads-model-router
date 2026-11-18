@@ -1,9 +1,16 @@
 use super::*;
 
-pub(super) async fn chat(
+pub(super) async fn chat(state: State<Arc<Runtime>>, headers: HeaderMap, body: Bytes) -> Response {
+    let runtime = state.0.clone();
+    let mut selection = None;
+    let response = chat_inner(state, headers, body, &mut selection).await;
+    model_routing::finish_response(&runtime, selection.as_ref(), response)
+}
+async fn chat_inner(
     State(runtime): State<Arc<Runtime>>,
     headers: HeaderMap,
     body: Bytes,
+    selection: &mut Option<model_routing::Selection>,
 ) -> Response {
     runtime.requests.fetch_add(1, Ordering::Relaxed);
     let credential = match authorize(&runtime, &headers).await {
@@ -61,7 +68,8 @@ pub(super) async fn chat(
         Ok(target) => target,
         Err(error) => return error,
     } {
-        alias_name = target;
+        alias_name = target.target.clone();
+        *selection = Some(target);
         request["model"] = Value::String(alias_name.clone());
     }
     if let Some(endpoint) = runtime
@@ -225,9 +233,20 @@ pub(super) async fn chat(
 }
 
 pub(super) async fn responses(
+    state: State<Arc<Runtime>>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let runtime = state.0.clone();
+    let mut selection = None;
+    let response = responses_inner(state, headers, body, &mut selection).await;
+    model_routing::finish_response(&runtime, selection.as_ref(), response)
+}
+async fn responses_inner(
     State(runtime): State<Arc<Runtime>>,
     headers: HeaderMap,
     body: Bytes,
+    selection: &mut Option<model_routing::Selection>,
 ) -> Response {
     runtime.requests.fetch_add(1, Ordering::Relaxed);
     let credential = match authorize(&runtime, &headers).await {
@@ -283,7 +302,8 @@ pub(super) async fn responses(
         Ok(target) => target,
         Err(error) => return error,
     } {
-        alias_name = target;
+        alias_name = target.target.clone();
+        *selection = Some(target);
         request["model"] = Value::String(alias_name.clone());
     }
     if let Some(endpoint) = runtime
@@ -340,6 +360,27 @@ pub(super) async fn responses(
         runtime.rejects.fetch_add(1, Ordering::Relaxed);
         return error;
     }
+    let tool_projection = match crate::responses_compat::prepare_local(&mut request) {
+        Ok(report) => {
+            if report != Default::default() {
+                info!(
+                    client_metadata = report.client_metadata,
+                    prompt_cache_key = report.prompt_cache_key,
+                    reasoning_items_dropped = report.reasoning_items_dropped,
+                    custom_tools = report.custom_tools,
+                    custom_items = report.custom_items,
+                    dropped_tools = report.dropped_tools.join(",").as_str(),
+                    dropped_tool_count = report.dropped_tool_count,
+                    "local responses compatibility applied"
+                );
+            }
+            report.projection
+        }
+        Err(error) => {
+            runtime.rejects.fetch_add(1, Ordering::Relaxed);
+            return error;
+        }
+    };
     let default_thinking = alias
         .routes
         .iter()
@@ -406,6 +447,9 @@ pub(super) async fn responses(
     let response = match prepared {
         ValidatedBody::Json(mut payload) => {
             payload["model"] = Value::String(alias_name);
+            if let Err(reason) = tool_projection.restore_response(&mut payload) {
+                return json_error(StatusCode::BAD_GATEWAY, "invalid_tool_output", reason);
+            }
             runtime.route_completions[route_idx].fetch_add(1, Ordering::Relaxed);
             mark_success(&runtime, route_idx);
             drop((route_permit, class_permit));
@@ -424,7 +468,7 @@ pub(super) async fn responses(
     result
         .headers_mut()
         .insert("x-accel-buffering", HeaderValue::from_static("no"));
-    *result.body_mut() = validated_sse(
+    *result.body_mut() = crate::sse::validated_sse_with_tools(
         runtime,
         route_idx,
         route_permit,
@@ -432,6 +476,7 @@ pub(super) async fn responses(
         response,
         alias_name,
         true,
+        Some(tool_projection),
     );
     result
 }

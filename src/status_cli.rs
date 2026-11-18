@@ -58,6 +58,25 @@ pub(crate) fn render(value: &Value) -> Result<String, String> {
         "\nEndpoints (traffic = upstream attempts; 5m share / process-lifetime share):"
     )
     .unwrap();
+    if let Some(policies) = value
+        .get("audit")
+        .and_then(|audit| audit.get("routing_policies"))
+        .and_then(Value::as_object)
+    {
+        let mut names: Vec<_> = policies.keys().collect();
+        names.sort();
+        for name in names {
+            let policy = &policies[name];
+            writeln!(
+                out,
+                "Routing policy {name}: {} version={} sha256={}",
+                text(policy, "mode")?,
+                policy["version"].as_str().unwrap_or("(unlabeled)"),
+                text(policy, "policy_sha256")?
+            )
+            .unwrap();
+        }
+    }
     let mut names: Vec<_> = routes.keys().collect();
     names.sort();
     for name in names {

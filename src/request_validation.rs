@@ -1,44 +1,49 @@
 use super::*;
 
-// Keep Axum Response as the direct validation error contract.
+#[derive(Clone, Copy)]
+pub(crate) struct ProjectionError {
+    pub code: &'static str,
+    pub message: &'static str,
+}
+// Keep Axum Response as the concrete HTTP validation contract.
 #[allow(clippy::result_large_err)]
 pub(super) fn normalize_extra_body(
     value: &mut Value,
     rewrite_thinking: bool,
 ) -> Result<(), Response> {
-    let object = value.as_object_mut().ok_or_else(|| {
-        json_error(
-            StatusCode::BAD_REQUEST,
-            "invalid_request",
-            "JSON object required",
-        )
+    project_extra_body(value, rewrite_thinking)
+        .map_err(|error| json_error(StatusCode::BAD_REQUEST, error.code, error.message))
+}
+// The offline inspector shares exactly the same one-level merge and errors.
+pub(crate) fn project_extra_body(
+    value: &mut Value,
+    rewrite_thinking: bool,
+) -> Result<(), ProjectionError> {
+    let object = value.as_object_mut().ok_or(ProjectionError {
+        code: "invalid_request",
+        message: "JSON object required",
     })?;
     if let Some(extra) = object.remove("extra_body") {
-        let map = extra.as_object().ok_or_else(|| {
-            json_error(
-                StatusCode::BAD_REQUEST,
-                "unsupported_parameter",
-                "extra_body must be an object",
-            )
+        let map = extra.as_object().ok_or(ProjectionError {
+            code: "unsupported_parameter",
+            message: "extra_body must be an object",
         })?;
         for (key, item) in map {
             if object.contains_key(key) {
-                return Err(json_error(
-                    StatusCode::BAD_REQUEST,
-                    "unsupported_parameter",
-                    "Duplicate extra_body parameter",
-                ));
+                return Err(ProjectionError {
+                    code: "unsupported_parameter",
+                    message: "Duplicate extra_body parameter",
+                });
             }
             object.insert(key.clone(), item.clone());
         }
     }
     if rewrite_thinking && let Some(value) = object.remove("enable_thinking") {
         if object.contains_key("chat_template_kwargs") {
-            return Err(json_error(
-                StatusCode::BAD_REQUEST,
-                "unsupported_parameter",
-                "Duplicate thinking parameter",
-            ));
+            return Err(ProjectionError {
+                code: "unsupported_parameter",
+                message: "Duplicate thinking parameter",
+            });
         }
         object.insert(
             "chat_template_kwargs".into(),

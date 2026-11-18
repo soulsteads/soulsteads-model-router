@@ -281,6 +281,20 @@ fn native_validation_projection(validation: &mut Value) -> Result<(), Response> 
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_owned();
+            // Native Codex replays assistant commentary/final-answer phases.
+            // Validate here and omit only from the local validation projection;
+            // the original request is forwarded unchanged to the native provider.
+            if let Some(phase) = object.get("phase") {
+                if kind != "message"
+                    || object.get("role").and_then(Value::as_str) != Some("assistant")
+                    || !phase
+                        .as_str()
+                        .is_some_and(|value| ["commentary", "final_answer"].contains(&value))
+                {
+                    return Err(invalid());
+                }
+                object.remove("phase");
+            }
             if [
                 "function_call",
                 "function_call_output",
@@ -771,11 +785,33 @@ pub(crate) async fn forward(
     Response::from_parts(parts, Body::from_stream(stream))
 }
 
+// Shared exact pure projection, including one-level extra_body and stream typing.
+#[allow(clippy::result_large_err)]
+pub(crate) fn project_request(
+    original: &Value,
+    chat: bool,
+) -> Result<(Value, bool, bool), Response> {
+    let mut request = original.clone();
+    normalize_extra_body(&mut request, false)?;
+    let stream = match request.get("stream") {
+        None => false,
+        Some(value) => value.as_bool().ok_or_else(invalid)?,
+    };
+    let include_usage = request["stream_options"]["include_usage"] == true;
+    let body = if chat {
+        chat_request(&request)?
+    } else {
+        request
+    };
+    native_request(&body)?;
+    Ok((body, stream, include_usage))
+}
+
 async fn forward_inner(
     runtime: Arc<Runtime>,
     credential: Arc<CredentialState>,
     headers: HeaderMap,
-    mut request: Value,
+    request: Value,
     chat: bool,
     class_permit: OwnedSemaphorePermit,
 ) -> Response {
@@ -793,28 +829,10 @@ async fn forward_inner(
     if let Err(error) = affinity_key(&headers, &credential, &name) {
         return error;
     }
-    if let Err(error) = normalize_extra_body(&mut request, false) {
-        return error;
-    }
-    let stream = match request.get("stream") {
-        None => false,
-        Some(value) => match value.as_bool() {
-            Some(value) => value,
-            None => return invalid(),
-        },
+    let (mut body, stream, include_usage) = match project_request(&request, chat) {
+        Ok(prepared) => prepared,
+        Err(error) => return error,
     };
-    let include_usage = request["stream_options"]["include_usage"] == true;
-    let mut body = if chat {
-        match chat_request(&request) {
-            Ok(body) => body,
-            Err(error) => return error,
-        }
-    } else {
-        request
-    };
-    if let Err(error) = native_request(&body) {
-        return error;
-    }
     let permit = match runtime.codex_semaphore.clone().try_acquire_owned() {
         Ok(permit) => permit,
         Err(_) => {
@@ -1149,6 +1167,33 @@ mod protocol_tests {
         invalid_request = request.clone();
         invalid_request["tools"][1]["tools"][0]["name"] = json!(false);
         assert!(native_request(&invalid_request).is_err());
+    }
+
+    #[test]
+    fn codex_protocol_assistant_phases_preserve_tool_continuation() {
+        let mut request = json!({"model":"alias", "input":[
+            {"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Running the proof."}]},
+            {"type":"function_call","name":"exec_command","call_id":"proof","arguments":"{}"},
+            {"type":"function_call_output","call_id":"proof","output":"proof result"}
+        ]});
+        for phase in ["commentary", "final_answer"] {
+            request["input"][0]["phase"] = json!(phase);
+            let original = request.clone();
+            assert!(native_request(&request).is_ok());
+            assert_eq!(request, original);
+            // Managed/local Responses retains its narrower contract.
+            assert!(validate_responses_request(&request, &alias(), None, false).is_err());
+        }
+        for phase in [json!("unknown"), json!(true), json!(null)] {
+            request["input"][0]["phase"] = phase;
+            assert!(native_request(&request).is_err());
+        }
+        request["input"][0]["phase"] = json!("commentary");
+        request["input"][0]["role"] = json!("user");
+        assert!(native_request(&request).is_err());
+        request["input"][0]["role"] = json!("assistant");
+        request["input"][1]["phase"] = json!("commentary");
+        assert!(native_request(&request).is_err());
     }
 
     #[test]

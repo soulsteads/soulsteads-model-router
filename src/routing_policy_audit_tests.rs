@@ -450,3 +450,45 @@ async fn decision_audit_cancellation_restores_context_and_permits() {
     assert_eq!(next["total_tokens"], 18);
     assert_permits(&fixture);
 }
+
+#[tokio::test]
+async fn decision_record_carries_local_share_and_overhead_fields() {
+    let upstream = decision_upstream().await;
+    let fixture = audit_fixture(&upstream, 1);
+    let capture = Capture::default();
+    let writer = capture.clone();
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .with_writer(move || writer.clone())
+        .finish();
+    let (status, request_id) = audited_request(&fixture, "smart")
+        .with_subscriber(subscriber)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let events = capture.events();
+    let selected: Vec<_> = events
+        .iter()
+        .filter(|e| {
+            e["fields"]["message"] == "routing policy selected"
+                && e["span"]["request_id"] == request_id
+        })
+        .collect();
+    assert_eq!(selected.len(), 1, "exactly one decision record per request");
+    let fields = &selected[0]["fields"];
+    assert_eq!(fields["reason"], "decision");
+    assert_eq!(fields["target"], "target");
+    assert_eq!(fields["provider_kind"], "local");
+    assert_eq!(fields["candidates"], "target");
+    assert_eq!(fields["candidate_kinds"], "local");
+    assert_eq!(fields["continuation_state"], false);
+    assert_eq!(fields["pin_hit"], false);
+    assert_eq!(fields["mode"], "active");
+    assert!(
+        fields["decision_ms"].as_u64().is_some(),
+        "overhead is recorded"
+    );
+    // The same request id joins the terminal record carrying retries, elapsed time and tokens.
+    let fields = terminal(&events, &request_id);
+    assert!(fields["elapsed_ms"].as_u64().is_some());
+    assert_eq!(fields["total_tokens"], 18);
+}

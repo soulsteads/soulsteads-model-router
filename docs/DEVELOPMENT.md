@@ -86,16 +86,56 @@ inference, HTTP networking, and journal durability: they are not production
 overhead guarantees or comparisons with historical source. Saturation has
 separate tests. Use `--offline` only when dependencies are already cached.
 
-## Known integration-test limitations
+## Local Responses stream diagnosis
 
-During public-release preparation, `mock_validation.py` failed its initial wait
-for all routes to become serving, and `headroom_failure_validation.py` failed
-its initial qualification wait. Both failures also reproduced with the original
-fixture code. These checks are **not a green integration gate** merely because
-the default Rust/Python suites pass. Reproduce and investigate them on the
-intended test host before claiming release acceptance; do not weaken assertions
-to hide missing qualification. The optional tokenizer download also returned
-HTTP 401; see [optional integrations](INTEGRATIONS.md).
+```sh
+python3 tests/responses_projection_validation.py \
+  --binary "$SLOTLINE_TEST_BINARY" --result /tmp/responses-projection.json
+```
+
+This isolated loopback HTTP fixture uses synthetic upstreams and disposable
+credentials, with no model or cloud calls. It verifies a valid namespaced custom
+call, undeclared names, unsupported native custom output, malformed or excess
+custom argument fields, and a stream ending without a terminal event. Rejected
+items must not reach the client; permits must be released; diagnostics must
+contain the static reason without tool arguments or credentials. An immediate
+retry must receive 503 during route cooldown without another upstream request.
+The result retains partial cases on failure. Keep it outside the source tree.
+
+For a real incident, correlate `upstream stream failed` and its
+`validation_reason` with the request ID. A transport disconnect followed by 503
+may be one validation failure followed by cooldown, not multiple model failures.
+If rejection happens before HTTP headers are flushed, the client may receive a
+disconnect without a status. Preserve the first failed attempt and bounded,
+private event-shape evidence; do not log request headers, prompts or tool input.
+Do not weaken tool identity checks or retry repeatedly to obtain a passing run.
+Synthetic fault injection distinguishes these paths but cannot determine the
+cause of a historical failure whose original event bytes were not captured.
+
+## Integration-test prerequisites
+
+HTTP acceptance requires an assigned test listener, free fixture ports and
+upstreams that pass both health and serving qualification. Verify those
+prerequisites before interpreting an initial qualification timeout. Do not
+weaken qualification assertions or production listener restrictions for a test.
+Default Rust/Python summaries do not replace compiled HTTP fixture acceptance.
+Tokenizer checks need verified, compatible assets and any required download
+access; see [optional integrations](INTEGRATIONS.md).
+
+Routing selection adds compiled fixtures with generated named manifests:
+
+```sh
+python3 tests/routing_offline_cli.py --manifest routing-offline-results.json
+python3 tests/routing_http_acceptance.py --manifest routing-http-results.json
+```
+
+Set `SLOTLINE_TEST_BINARY` explicitly, plus `SLOTLINE_TEST_HOST` for HTTP. Use a
+private `TMPDIR` suitable for credential readers and short Unix socket paths.
+Offline checks include positive network-denial and file-metadata tracing controls,
+including `stat`/`statx` account ancestor probes and a synthetic positive control.
+The fixture enumerates every account ancestor `.git` path, including parents above
+the private fixture directory. Missing
+seccomp/ptrace/listener access is blocked coverage, not a passing runtime check.
 
 ## Source boundaries
 

@@ -115,6 +115,7 @@ pub(crate) struct Runtime {
     pub(crate) affinity_hits: Arc<AtomicU64>,
     pub(crate) affinity_rebinds: Arc<AtomicU64>,
     pub(crate) affinity_expired: Arc<AtomicU64>,
+    pub(crate) pins: Arc<Mutex<crate::session_pin::PinStore>>,
 }
 
 pub(crate) struct AppState {

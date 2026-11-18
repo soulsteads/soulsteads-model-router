@@ -487,3 +487,16 @@ mod tests {
         assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
     }
 }
+
+#[test]
+fn routing_provenance_is_not_a_native_copilot_upstream_header() {
+    for name in [
+        "x-slotline-routing-mode",
+        "x-slotline-routing-policy-sha256",
+        "x-slotline-routing-unknown",
+    ] {
+        assert!(!response_header_allowed(
+            &reqwest::header::HeaderName::from_static(name)
+        ));
+    }
+}

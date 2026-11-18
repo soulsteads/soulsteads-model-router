@@ -25,9 +25,10 @@ For a safe readiness probe, configure `enabled: true` and
 run `slotline codex status CONFIG.yaml`. Status reads the selected local file
 only; it does not call a provider or change authentication state.
 
-This is interoperability with an undocumented backend, **not live-provider
-acceptance**. Do not enable real traffic without a separately authorized live
-test.
+The backend remains undocumented. Bounded actual-provider and Codex CLI tool
+continuation checks are recorded in [qualification](QUALIFICATION.md); they do
+not establish every entitlement or client version. Enable real traffic only
+with explicit provider, credential and model authority.
 
 ## Configuration and default denial
 
@@ -127,6 +128,9 @@ a stale in-flight failure cannot invalidate a newer refreshed token.
   and `include: [reasoning.encrypted_content]`. Account bearer and account ID,
   originator, user agent and content headers are internally constructed. Caller
   authorization, cookies, API keys and all other headers are never forwarded.
+- Native assistant messages may carry `phase: commentary` or
+  `phase: final_answer`. The adapter preserves this phase in replayed history;
+  other values or phases on non-assistant/non-message items are refused.
 - Native text, function definitions/calls/results, reasoning summaries and
   encrypted reasoning items are retained. Replay calls before their
   `function_call_output` items: this implementation is stateless. Completed item

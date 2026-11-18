@@ -48,6 +48,7 @@ struct UpstreamState {
     target_usage: Mutex<Option<Value>>,
     decision_status: Mutex<Option<StatusCode>>,
     failing_target: Mutex<Option<String>>,
+    decision_release: Mutex<Option<Arc<tokio::sync::Notify>>>,
 }
 
 struct Upstream {
@@ -104,6 +105,10 @@ async fn decision_handler(
         }
         let reply = *state.decision_reply.lock().unwrap();
         let target = state.decision_target.lock().unwrap().clone();
+        let release = state.decision_release.lock().unwrap().clone();
+        if let Some(release) = release {
+            release.notified().await;
+        }
         if reply == DecisionReply::Timeout {
             tokio::time::sleep(Duration::from_secs(3)).await;
         }
@@ -472,6 +477,52 @@ async fn invoke(fixture: &Fixture, endpoint: &str, body: Value) -> Response {
         )
         .await
         .unwrap()
+}
+
+#[tokio::test]
+async fn concurrent_session_placement_cannot_dispatch_a_different_judge_target() {
+    let upstream = decision_upstream().await;
+    let release = Arc::new(tokio::sync::Notify::new());
+    *upstream.state.decision_release.lock().unwrap() = Some(release.clone());
+    let fixture = fixture_with_cloud_policy(
+        &upstream,
+        json!({
+            "decision_model":"judge", "decision_targets":["target","cloud"],
+            "decision_timeout_seconds":2
+        }),
+        true,
+    );
+    let request = invoke(
+        &fixture,
+        "responses",
+        json!({"model":"smart","prompt_cache_key":"race", "input":"hello","max_output_tokens":16}),
+    );
+    let concurrent = async {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while upstream.state.decision_calls.load(AtomicOrdering::Relaxed) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let runtime = fixture.app.current();
+        let key = crate::session_pin::pin_key("fixture", "smart", "pck:race");
+        runtime.pins.lock().unwrap().put_if_absent(
+            key,
+            crate::session_pin::owner_id("fixture"),
+            "cloud",
+            Instant::now(),
+        );
+        release.notify_one();
+    };
+    let (response, ()) = tokio::join!(request, concurrent);
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let value: Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(value["error"]["code"], "pin_conflict");
+    assert_eq!(upstream.state.target_calls.load(AtomicOrdering::Relaxed), 0);
 }
 
 #[tokio::test]
@@ -989,6 +1040,135 @@ async fn decision_selects_a_local_target_for_responses() {
 }
 
 #[tokio::test]
+async fn unpinned_continuations_fail_closed_before_local_judge_or_target_dispatch() {
+    for (endpoint, body) in [
+        (
+            "chat/completions",
+            json!({"model":"smart","max_tokens":16,"messages":[
+                {"role":"user","content":"run"},
+                {"role":"assistant","content":"prior","reasoning_content":"opaque continuation"}
+            ]}),
+        ),
+        (
+            "responses",
+            json!({"model":"smart","max_output_tokens":16,"input":[
+                {"type":"message","role":"user","content":"run"},
+                {"type":"reasoning","id":"rs","summary":[],"encrypted_content":"opaque continuation"}
+            ]}),
+        ),
+    ] {
+        let upstream = decision_upstream().await;
+        let fixture = fixture_with_custom_config(
+            &upstream,
+            json!({"decision_model":"judge","decision_targets":["target","other"],
+                "decision_timeout_seconds":2}),
+            None,
+            true,
+            |config| {
+                config["credentials"][0]["aliases"] = json!(["smart", "judge", "target", "other"]);
+                config["routes"][0]["capabilities"] = json!(["text", "responses", "tools"]);
+                config["aliases"]["judge"]["capabilities"] = json!(["text", "responses", "tools"]);
+                config["aliases"]["target"]["capabilities"] = json!(["text", "responses", "tools"]);
+                config["aliases"]["other"] = config["aliases"]["target"].clone();
+            },
+            |_| {},
+        );
+        let response = invoke(&fixture, endpoint, body).await;
+        let status = response.status();
+        let response_body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        assert_eq!(
+            status,
+            StatusCode::CONFLICT,
+            "{endpoint}: {}",
+            String::from_utf8_lossy(&response_body)
+        );
+        assert_eq!(
+            serde_json::from_slice::<Value>(&response_body).unwrap()["error"]["code"],
+            "continuation_pinned"
+        );
+        assert_eq!(
+            upstream.state.decision_calls.load(AtomicOrdering::Relaxed),
+            0,
+            "{endpoint}"
+        );
+        assert_eq!(
+            upstream.state.target_calls.load(AtomicOrdering::Relaxed),
+            0,
+            "{endpoint}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn codex_bookkeeping_and_custom_tools_reach_a_local_target_in_function_form() {
+    let upstream = decision_upstream().await;
+    let fixture = fixture_with_custom_config(
+        &upstream,
+        json!({"decision_model":"judge","decision_targets":["target"],"decision_timeout_seconds":2}),
+        None,
+        true,
+        |config| {
+            config["credentials"][0]["requests_per_minute"] = json!(10);
+            config["credentials"][0]["burst"] = json!(10);
+            let capabilities = json!(["text", "tools", "responses"]);
+            for route in config["routes"].as_array_mut().unwrap() {
+                route["capabilities"] = capabilities.clone();
+            }
+            config["aliases"]["target"]["capabilities"] = capabilities;
+        },
+        |_| {},
+    );
+    // A plain first turn establishes the exact client-supplied pin. The following
+    // tool continuation must use it rather than being rejected or judged again.
+    let first = invoke(
+        &fixture,
+        "responses",
+        json!({"model":"smart","max_output_tokens":16,
+            "client_metadata":{"session_id":"meta-secret-session"},
+            "prompt_cache_key":"meta-secret-cache","input":"choose a target"}),
+    )
+    .await;
+    assert_eq!(first.status(), StatusCode::OK);
+    let _ = axum::body::to_bytes(first.into_body(), 4096).await.unwrap();
+    let response = invoke(
+        &fixture,
+        "responses",
+        json!({"model":"smart","max_output_tokens":16,"store":false,
+            "client_metadata":{"session_id":"meta-secret-session"},
+            "prompt_cache_key":"meta-secret-cache","include":["reasoning.encrypted_content"],
+            "tools":[{"type":"custom","name":"apply_patch","description":"Patch","format":{"type":"grammar","syntax":"lark","definition":"x"}},
+                     {"type":"web_search","external_web_access":false}],
+            "input":[{"type":"message","role":"user","content":"choose a target"},
+                {"type":"reasoning","id":"rs","summary":[],"encrypted_content":"opaque-blob"},
+                {"type":"custom_tool_call","call_id":"c1","name":"apply_patch","input":"patch text"},
+                {"type":"custom_tool_call_output","call_id":"c1","output":"applied"}]}),
+    )
+    .await;
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+    let requests = upstream.state.requests.lock().unwrap();
+    let everything = serde_json::to_string(&*requests).unwrap();
+    for private in ["meta-secret-session", "meta-secret-cache", "opaque-blob"] {
+        assert!(
+            !everything.contains(private),
+            "{private} must not leave the router"
+        );
+    }
+    let target = &requests.last().unwrap().1;
+    assert!(target.get("client_metadata").is_none() && target.get("include").is_none());
+    assert_eq!(target["tools"].as_array().unwrap().len(), 1);
+    assert_eq!(target["tools"][0]["type"], "function");
+    assert_eq!(target["input"][1]["type"], "function_call");
+    assert_eq!(target["input"][2]["type"], "function_call_output");
+    assert_eq!(target["input"].as_array().unwrap().len(), 3);
+}
+
+#[tokio::test]
 async fn malformed_or_truncated_decision_fails_closed_without_target_replay() {
     for reply in [
         DecisionReply::Malformed,
@@ -1216,4 +1396,114 @@ fn decision_authority_changes_policy_digest_and_requires_restart() {
         );
         assert!(validate_reload(&original, &candidate).is_err());
     });
+}
+
+#[tokio::test]
+async fn routing_shadow_serves_baseline_once_without_judge_or_extra_rate_debit() {
+    let upstream = decision_upstream().await;
+    let fixture = fixture_with_policy(
+        &upstream,
+        json!({"mode":"shadow","version":"synthetic-v1",
+        "default_target":"target","decision_model":"judge","decision_targets":["target"],
+        "rules":[{"id":"λ advisory","target":"target","when":{"stream":false}}]}),
+    );
+    // Leave prompt headroom within the fixture's 4096-token context.
+    let request =
+        json!({"model":"smart","messages":[{"role":"user","content":"hello"}],"max_tokens":16});
+    let response = fixture
+        .router
+        .clone()
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header("authorization", format!("Bearer {WORKLOAD_KEY}"))
+                .header("content-type", "application/json")
+                .body(Body::from(request.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["x-slotline-routing-mode"], "shadow");
+    assert_eq!(
+        response.headers()["x-slotline-routing-version"],
+        "synthetic-v1"
+    );
+    axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    assert_eq!(
+        upstream.state.decision_calls.load(AtomicOrdering::Relaxed),
+        0
+    );
+    assert_eq!(upstream.state.target_calls.load(AtomicOrdering::Relaxed), 1);
+    let response = fixture
+        .router
+        .clone()
+        .oneshot(
+            Request::post("/v1/chat/completions")
+                .header("authorization", format!("Bearer {WORKLOAD_KEY}"))
+                .header("content-type", "application/json")
+                .body(Body::from(request.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(upstream.state.target_calls.load(AtomicOrdering::Relaxed), 1);
+}
+
+#[tokio::test]
+async fn routing_shadow_denied_advisory_is_absent_and_denied_baseline_never_judges() {
+    for denied_baseline in [false, true] {
+        let upstream = decision_upstream().await;
+        let fixture = fixture_with_cloud_policy(
+            &upstream,
+            json!({"mode":"shadow",
+            "default_target":if denied_baseline {"cloud"}else{"target"},"decision_model":"judge","decision_targets":["target"],
+            "rules":[{"id":"cloud","target":"cloud","when":{"stream":false}}]}),
+            false,
+        );
+        let response = fixture
+            .router
+            .clone()
+            .oneshot(
+                Request::post("/v1/chat/completions")
+                    .header("authorization", format!("Bearer {WORKLOAD_KEY}"))
+                    .header("content-type", "application/json")
+                    .body(Body::from(
+                        // Leave prompt headroom within the fixture's 4096-token context.
+                        json!({"model":"smart","messages":[{"role":"user","content":"hello"}],"max_tokens":16})
+                            .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            if denied_baseline {
+                StatusCode::FORBIDDEN
+            } else {
+                StatusCode::OK
+            }
+        );
+        assert!(
+            response
+                .headers()
+                .get("x-slotline-routing-advisory-sha256")
+                .is_none()
+        );
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        assert!(!String::from_utf8_lossy(&body).contains("cloud"));
+        assert_eq!(
+            upstream.state.decision_calls.load(AtomicOrdering::Relaxed),
+            0
+        );
+        assert_eq!(
+            upstream.state.target_calls.load(AtomicOrdering::Relaxed),
+            usize::from(!denied_baseline)
+        );
+    }
 }

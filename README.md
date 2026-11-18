@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Your local models. One endpoint. Blazing fast. No BS.</strong><br/>
+  <strong>One endpoint for your local inference servers.</strong><br/>
   Route OpenAI-compatible requests across your own inference servers without overbooking them.
 </p>
 
@@ -60,8 +60,9 @@ accept its different contract.
 
 > [!IMPORTANT]
 > **Early release, not a universal OpenAI drop-in.** You need a Linux/Unix host,
-> an existing local inference server, and an assigned Tailnet IPv4 address.
-> The current validator rejects loopback, LAN, and wildcard listener binds and
+> an existing local inference server, and a Tailnet or explicit loopback listener.
+> The default listener requires Tailnet IPv4; explicit `listener_mode: loopback`
+> permits same-host deployment. The listener rejects LAN and wildcard binds and
 > reserves port `4001`. The gateway serves HTTP, not built-in TLS: use a protected
 > network and do not expose it directly to the internet.
 
@@ -111,6 +112,6 @@ No model server or prebuilt binary is bundled.
 
 Licensed under the [Apache License 2.0](LICENSE).
 
-This branch prepares the project for public release. A
-[Git-history privacy review](docs/DEVELOPMENT.md#before-publishing) remains required;
-cleaning current files does not remove data from earlier commits or hosted copies.
+This is an early source release. There is no bundled model server or prebuilt
+binary. Review the [compatibility limits](docs/COMPATIBILITY.md) and verify your
+client, model, and route before migrating existing workloads.

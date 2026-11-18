@@ -12,8 +12,10 @@ This page describes **managed routing**. Opt-in
 
 - The implementation uses Unix control sockets and Unix file permissions;
   the setup guide targets Linux.
-- The listener must bind an explicit, assigned Tailnet IPv4 address in
-  `100.64.0.0/10`. Loopback, LAN, wildcard, and IPv6 listener binds are rejected.
+- The default listener must bind an explicit, assigned Tailnet IPv4 address in
+  `100.64.0.0/10`. Explicit `listener_mode: loopback` permits numeric IPv4/IPv6
+  loopback for same-host clients with the same authentication requirements. LAN
+  and wildcard binds remain rejected.
 - Port `4001` is reserved by the current validator.
 - Local upstreams use literal loopback or private IPv4 addresses, not DNS names.
 - The gateway serves HTTP without built-in TLS. Keep it on a protected network;
@@ -25,15 +27,24 @@ inference servers; Slotline does not load/unload models or control their KV cach
 
 ## HTTP endpoints
 
-Every endpoint requires a bearer credential. Inference and catalog access are
+Every supported endpoint listed below requires a bearer credential, with one exception: the unsupported `GET /v1/responses` stub returns `501` before any authentication. Inference and catalog access are
 filtered by that credential's policy. Operator access is additionally required
 for `/healthz`, `/status`, and `/metrics`.
 
-- `GET /v1/models`: authorized configured aliases, with stable context metadata.
+- `GET /v1/models`: authorized configured aliases. Local aliases carry context metadata; routing-policy aliases and native Copilot/Codex entries carry only `model_info` without context limits.
 - `POST /v1/chat/completions`: managed chat and eligible inline-image requests.
 - `POST /v1/responses`: bounded text Responses requests.
 - `POST /v1/embeddings`: separate embedding-mode aliases.
 - `GET /healthz`, `/status`, `/metrics`: operator health, state, and metrics.
+
+`GET /v1/responses` (the Responses WebSocket upgrade) returns `501
+unsupported_endpoint` without requiring a credential; there is no WebSocket transport and no `/v1/messages`
+(Anthropic Messages) endpoint. Router-generated HTTP error bodies use one shape,
+`{"error":{"message","type","code"}}`, with a stable `code`; `type` is always
+`invalid_request_error`, including for authentication, rate-limit and server
+errors, so clients must branch on HTTP status and `code`. `429` and `503` carry
+`Retry-After: 2`. Check whether your client supports these transport and error
+contracts before switching endpoints.
 
 The alias is the client-facing model name. Managed responses normalize model
 identity to that alias. Upstream models must match their configured route.
@@ -62,6 +73,7 @@ requires the endpoint-specific `responses_json_schema` or
 
 Stateful continuation with `previous_response_id` or `conversation` is rejected.
 Responses image input, audio, and video are not supported by the managed path.
+Codex CLI bookkeeping (`client_metadata`, `prompt_cache_key`, encrypted-reasoning `include`), opaque reasoning items and freeform custom tools are handled on local routes as described in [routing](ROUTING.md#local-responses-compatibility-for-codex-cli); developer `additional_tools` catalogs and one namespace level are supported. Shell/MCP execution-history items and other unsupported hosted items are refused with `unsupported_input_item`.
 
 ### Images
 
@@ -109,6 +121,9 @@ input and consistent, nonempty, finite vectors.
 The default retry policy is at most eight attempts over 1,800 total seconds;
 route and class deadlines can shorten this. Choose client deadlines with those
 budgets in mind. See [operations](OPERATIONS.md#request-deadlines).
+
+See [observed client/backend qualification](QUALIFICATION.md) for actual tested
+versions and failures; supported schema does not imply native-client compatibility.
 
 ## Validate your deployment
 

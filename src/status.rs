@@ -742,6 +742,7 @@ pub(super) fn make_runtime(
             affinity_hits: old.affinity_hits.clone(),
             affinity_rebinds: old.affinity_rebinds.clone(),
             affinity_expired: old.affinity_expired.clone(),
+            pins: old.pins.clone(),
         }));
     }
     let client = reqwest::Client::builder()
@@ -852,5 +853,6 @@ pub(super) fn make_runtime(
         affinity_hits: Arc::new(AtomicU64::new(0)),
         affinity_rebinds: Arc::new(AtomicU64::new(0)),
         affinity_expired: Arc::new(AtomicU64::new(0)),
+        pins: Arc::new(Mutex::new(crate::session_pin::PinStore::default())),
     }))
 }

@@ -17,6 +17,8 @@ installation. The gateway still builds as `slotline`.
 
 - [Rules and decision-model routing](ROUTING.md): explicit local/cloud selection,
   bounded local judges, permissions and failure behavior.
+- [Observed compatibility](QUALIFICATION.md): bounded client observations and a
+  repeatable check for your own deployment.
 - [Offline outcome qualification](ADAPTIVE_ROUTING.md): advisory scorecards for
   reviewed model-version results; no automatic live learning or policy changes.
 

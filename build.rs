@@ -25,8 +25,25 @@ fn main() {
     paths.sort();
     let mut hash = Sha256::new();
     println!("cargo:rerun-if-changed=src");
-    println!("cargo:rerun-if-changed=.git/HEAD");
-    println!("cargo:rerun-if-changed=.git/refs/heads/main");
+    let mut git_refs = vec!["HEAD".to_owned(), "packed-refs".to_owned()];
+    if let Ok(output) = Command::new("git")
+        .args(["symbolic-ref", "-q", "HEAD"])
+        .output()
+        && output.status.success()
+        && let Ok(reference) = String::from_utf8(output.stdout)
+    {
+        git_refs.push(reference.trim().to_owned());
+    }
+    for reference in git_refs {
+        if let Ok(output) = Command::new("git")
+            .args(["rev-parse", "--git-path", &reference])
+            .output()
+            && output.status.success()
+            && let Ok(path) = String::from_utf8(output.stdout)
+        {
+            println!("cargo:rerun-if-changed={}", path.trim());
+        }
+    }
     for path in paths {
         println!("cargo:rerun-if-changed={}", path.display());
         hash.update(path.to_str().expect("UTF-8 source path").as_bytes());
