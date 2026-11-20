@@ -30,6 +30,13 @@ task-quality parity remain unqualified. This does not make the router a replacem
 for any existing routing path. Verify each capability your client requires before
 moving traffic.
 
+For an active routing policy, also check whether the client supplies an explicit
+session identity. [Session pins](docs/ROUTING.md#session-pins-memory-only) are
+held in memory and disappear on restart. A tool-bearing or stateful continuation
+without a pin returns HTTP 409 `continuation_pinned` before judge inference or
+upstream dispatch. Include restart and continuation in the canary; don't hide a
+refusal by removing the continuation state.
+
 If a client also uses cloud models, retain its existing provider route for those
 calls. This gateway targets local inference servers, does not provide cloud
 subscriptions, and does not depend on LiteLLM.
