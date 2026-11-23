@@ -1071,6 +1071,7 @@ fn codex_storage_rejects_unsafe_permissions_symlinks_hardlinks_and_git_paths() {
     assert!(store.read().is_err());
     let nested = dir.path().join("state");
     fs::create_dir(&nested).unwrap();
+    fs::set_permissions(&nested, fs::Permissions::from_mode(0o755)).unwrap();
     assert!(codex_auth::Store::open(&nested.join("account.json")).is_err());
     fs::set_permissions(&nested, fs::Permissions::from_mode(0o700)).unwrap();
     let alias = dir.path().join("symlink-dir");
