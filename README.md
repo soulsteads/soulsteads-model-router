@@ -71,6 +71,8 @@ Support depends on your exact backend and declared route capabilities. See
 
 ## Get started
 
+Prefer Docker or Podman? See the [container deployment guide](docs/containers.md).
+
 ### Ask your agent
 
 Paste this into an agent that can work in the repository checkout:
