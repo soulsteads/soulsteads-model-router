@@ -1,0 +1,17 @@
+# Only build inputs; Git history and operator state are not sent to the builder.
+**
+!Cargo.toml
+!Cargo.lock
+!build.rs
+!LICENSE
+!NOTICE
+!third_party/LiteLLM-LICENSE.txt
+!src/**
+
+# Keep local credentials and Python artifacts out even under source directories.
+**/.env
+**/.env.*
+**/*.key
+**/*.pem
+**/__pycache__
+**/*.pyc
