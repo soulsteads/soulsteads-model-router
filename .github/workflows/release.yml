@@ -6,7 +6,14 @@ on:
   pull_request:
     paths:
       - .github/workflows/release.yml
-      - tests/test_release_assets.py
+      - 'tests/test_release_*.py'
+      - Cargo.toml
+      - Cargo.lock
+      - build.rs
+      - 'src/**'
+      - LICENSE
+      - NOTICE
+      - third_party/LiteLLM-LICENSE.txt
 
 permissions:
   contents: read
@@ -21,8 +28,8 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Test release asset validation offline
-        run: python3 -B -m unittest discover -s tests -p 'test_release_assets.py' -v
+      - name: Test release assets and dependency notices offline
+        run: python3 -B -m unittest discover -s tests -p 'test_release_*.py' -v
       - name: Prepare Rust build environment
         run: |
           sudo apt-get update
@@ -64,7 +71,7 @@ jobs:
           import json
           from pathlib import Path
           import re
-          import shutil
+
           import sys
 
           metadata = json.loads(Path(sys.argv[1]).read_text())
@@ -95,17 +102,20 @@ jobs:
                        if path.is_file() and legal.match(path.name) and path.suffix != '.rs'}
               if pkg['license_file']:
                   files.add(source / pkg['license_file'])
-              if not pkg['license'] and not files:
-                  raise SystemExit(f'No declared license or notice files for {target.name}')
               copied = []
               for path in sorted(files):
                   relative = path.relative_to(source)
                   if '..' in relative.parts or not path.resolve().is_relative_to(source):
                       raise SystemExit(f'License file outside crate: {target.name}')
+                  content = path.read_bytes()
+                  if not content.strip():
+                      continue
                   dest = target / relative
                   dest.parent.mkdir(parents=True, exist_ok=True)
-                  shutil.copyfile(path, dest)
+                  dest.write_bytes(content)
                   copied.append(relative.as_posix())
+              if not copied:
+                  raise SystemExit(f'No nonempty license or notice files for {target.name}')
               rows.append(f"{target.name}\t{pkg['license'] or 'See packaged license file'}\t{', '.join(copied)}\n")
           (notices / 'INDEX.tsv').write_text('Crate\tDeclared license\tFiles supplied by the crate\n' + ''.join(rows))
           PY
