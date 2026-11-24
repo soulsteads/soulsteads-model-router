@@ -67,7 +67,7 @@ maintain the access controls in [Setup](SETUP.md). Slotline does not provide TLS
 "$engine" run -d --name soulsteads-model-router --network host \
   -v soulsteads-model-router-data:/data "$image" /data/config.yaml
 "$engine" logs soulsteads-model-router
-"$engine" exec soulsteads-model-router slotline status /data/config.yaml --json
+"$engine" exec soulsteads-model-router soulsteads-router status /data/config.yaml --json
 ```
 
 The `status` command can report backend health; it is not proof of inference.

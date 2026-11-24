@@ -22,7 +22,7 @@ login is not started for this source.
 
 For a safe readiness probe, configure `enabled: true` and
 `auth_source: codex_cli` (omit `cli_auth_file` to use the system default), then
-run `slotline codex status CONFIG.yaml`. Status reads the selected local file
+run `soulsteads-router codex status CONFIG.yaml`. Status reads the selected local file
 only; it does not call a provider or change authentication state.
 
 The backend remains undocumented. Bounded actual-provider and Codex CLI tool
@@ -60,7 +60,7 @@ codex:
 ```
 
 The historical managed-login and refresh evidence below remains applicable only
-to this managed source. Do not use `slotline codex login` for the CLI source.
+to this managed source. Do not use `soulsteads-router codex login` for the CLI source.
 
 The backend defaults to disabled. Every workload/key policy defaults to
 `cloud_allowed: false`. In addition to normal key/verifier, name, class and rate
@@ -89,8 +89,8 @@ such as `/tmp` are permitted). Symlinks in every component, hardlinks, unsafe
 ownership/permissions and `..` traversal are rejected, not silently repaired.
 
 ```sh
-slotline codex login CONFIG.yaml
-slotline codex status CONFIG.yaml
+soulsteads-router codex login CONFIG.yaml
+soulsteads-router codex status CONFIG.yaml
 ```
 
 These commands authenticate only; they do not run inference. Login displays a

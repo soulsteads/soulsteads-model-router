@@ -21,7 +21,7 @@ file parsed successfully.
 ## Run the offline evaluator
 
 ```sh
-slotline routing evaluate dataset.json > qualification.json
+soulsteads-router routing evaluate dataset.json > qualification.json
 ```
 
 This command runs before gateway configuration, authentication stores, tracing

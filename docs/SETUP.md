@@ -29,7 +29,7 @@ cargo build --release --locked
 cargo test --locked
 ```
 
-The executable is `target/release/slotline`. No tokenizer download is needed
+The executable is `target/release/soulsteads-router`. No tokenizer download is needed
 for the minimal text example; without a pinned tokenizer Slotline uses a
 conservative context estimate.
 
@@ -100,8 +100,8 @@ rotation/revocation acknowledgments require that store mode.
 
 ```sh
 CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/slotline/config.yaml"
-target/release/slotline --check-config "$CONFIG"
-target/release/slotline "$CONFIG"
+target/release/soulsteads-router --check-config "$CONFIG"
+target/release/soulsteads-router "$CONFIG"
 ```
 
 Expected validation output: `slotline configuration valid`. Validation checks
@@ -149,32 +149,58 @@ request alone does not prove the backend is serving. Confirm a missing or
 incorrect bearer is rejected, and inspect authenticated `/healthz` or `/status`
 if the completion returns `503`.
 
-## 5. Optional systemd user service
+## 5. Optional systemd service
 
-Only do this after the foreground checks pass. Review
-[`deploy/slotline-shadow.service`](../deploy/slotline-shadow.service) first.
-It expects the binary at `~/.local/bin/slotline` and the policy at
-`~/.config/slotline/config.yaml` (edit paths if you used `XDG_CONFIG_HOME`).
-The private state directory is writable through the unit's filesystem
-restrictions so Unix sockets and a verifier store can work.
+Only do this after the foreground checks pass. The installer uses the current
+absolute executable and the XDG policy location
+`$XDG_CONFIG_HOME/slotline/config.yaml` (or `~/.config/slotline/config.yaml`).
+It never parses the policy, enables, starts, or restarts a unit.
 
-Do not overwrite an existing binary or unit without preserving its rollback.
-For a new installation:
+For a user service, first copy the reviewed executable somewhere stable on your
+`PATH` (for example `~/.local/bin/soulsteads-router`), then run the copy:
 
 ```sh
-install -d "$HOME/.local/bin" "$HOME/.config/systemd/user"
-install -m 755 target/release/slotline "$HOME/.local/bin/slotline"
-install -m 644 deploy/slotline-shadow.service "$HOME/.config/systemd/user/slotline.service"
+install -d "$HOME/.local/bin"
+install -m 755 target/release/soulsteads-router "$HOME/.local/bin/soulsteads-router"
+"$HOME/.local/bin/soulsteads-router" service install --user --dry-run
+"$HOME/.local/bin/soulsteads-router" service install --user
+```
+
+The write refuses an existing or symlinked unit. Review the generated unit at
+`$XDG_CONFIG_HOME/systemd/user/soulsteads-router.service` (or
+`~/.config/systemd/user/soulsteads-router.service`) before manually choosing
+any lifecycle action. The user unit intentionally avoids filesystem-namespace
+sandbox directives so it also works where unprivileged user namespaces are
+disabled:
+
+```sh
 systemctl --user daemon-reload
-systemctl --user enable --now slotline.service
-systemctl --user status slotline.service
+systemctl --user enable soulsteads-router.service
+systemctl --user start soulsteads-router.service
+systemctl --user status soulsteads-router.service
+```
+
+For a system service, run the installer as an administrator and select an
+existing non-root account explicitly. It writes only the fixed
+`/etc/systemd/system/soulsteads-router.service` path; there is no directory
+override. It derives that account's absolute `~/.config/slotline/config.yaml`
+location, runs the service as that account, uses the system-service filesystem
+sandbox directives, and installs to `multi-user.target`:
+
+```sh
+sudo /absolute/path/to/soulsteads-router service install --system --run-as router --dry-run
+sudo /absolute/path/to/soulsteads-router service install --system --run-as router
+sudo systemctl daemon-reload
+sudo systemctl enable soulsteads-router.service
+sudo systemctl start soulsteads-router.service
+sudo systemctl status soulsteads-router.service
 ```
 
 Re-run the real catalog and completion checks after service startup. Use
-`journalctl --user -u slotline.service` for logs. Starting at boot without an
-interactive login depends on your host's user-service/linger configuration;
-this guide does not change it. These units are examples, not an installer or
-proof of systemd hardening on every distribution.
+`journalctl --user -u soulsteads-router.service` for a user service, or
+`sudo journalctl -u soulsteads-router.service` for a system service. Starting
+at boot without an interactive login depends on your host's user-service/linger
+configuration; this guide does not change it.
 
 ## Next steps
 

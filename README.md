@@ -9,7 +9,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License: Apache 2.0" /></a>
-  <img src="https://img.shields.io/badge/version-0.2.0-orange" alt="Version 0.2.0" />
+  <img src="https://img.shields.io/badge/version-0.3.0-orange" alt="Version 0.3.0" />
   <img src="https://img.shields.io/badge/rust-2024-informational?logo=rust" alt="Rust 2024" />
   <img src="https://img.shields.io/badge/status-early%20release-yellow" alt="Status: early release" />
 </p>
@@ -22,7 +22,7 @@ requests that GPU can safely handle.
 
 **Soulsteads Model Router** puts stable model aliases in front of your servers.
 Its managed routing checks capabilities and available capacity before choosing
-a backend. It is written in Rust and builds as the `slotline` binary.
+a backend. It is written in Rust and ships as the `soulsteads-router` executable.
 
 ```text
 Agents and OpenAI-compatible clients
@@ -102,7 +102,7 @@ No model server or prebuilt binary is bundled.
 
 ## Documentation
 
-- [Setup](docs/SETUP.md): build, configuration, first request, optional user service.
+- [Setup](docs/SETUP.md): build, configuration, first request, and service installer.
 - [Compatibility](docs/COMPATIBILITY.md): endpoints, supported request shapes, limits.
 - [Operations](docs/OPERATIONS.md): status, health, deadlines, reload, safe updates.
 - [Keys](KEYS.md): verifier store, credential lifecycle, backup, and restore.

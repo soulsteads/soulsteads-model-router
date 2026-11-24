@@ -353,9 +353,9 @@ a model does not prove useful routing quality, latency or provider entitlement.
 ## Offline selection explanation and fixtures
 
 ```sh
-slotline routing explain CONFIG.yaml CASE.json
-slotline routing evaluate-selection CONFIG.yaml DATASET.json --require-match
-slotline routing evaluate-selection CONFIG.yaml DATASET.json --min-score 0.95
+soulsteads-router routing explain CONFIG.yaml CASE.json
+soulsteads-router routing evaluate-selection CONFIG.yaml DATASET.json --require-match
+soulsteads-router routing evaluate-selection CONFIG.yaml DATASET.json --min-score 0.95
 ```
 
 These commands branch before runtime creation. They read only the two specified,

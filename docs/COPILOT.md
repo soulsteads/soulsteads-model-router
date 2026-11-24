@@ -32,9 +32,9 @@ Native inference has a 120-second attempt and total deadline by default. `class_
 Managed authentication uses GitHub's device flow:
 
 ```text
-slotline copilot login CONFIG.yaml
-slotline copilot status CONFIG.yaml
-slotline copilot logout CONFIG.yaml
+soulsteads-router copilot login CONFIG.yaml
+soulsteads-router copilot status CONFIG.yaml
+soulsteads-router copilot logout CONFIG.yaml
 ```
 
 The authorization code is displayed only for interactive sign-in. Slotline stores the GitHub OAuth access token in its own secure managed file. At inference time, Slotline exchanges that OAuth token for the separate, expiring Copilot session token and discovers the Copilot API endpoint. Session tokens are cached only in memory, refreshed before expiry, and invalidated/retried once after an upstream unauthorized response. Managed writes occur atomically after device authorization completes; no storage lock is held while the user authorizes the device.

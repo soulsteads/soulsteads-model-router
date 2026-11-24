@@ -588,6 +588,7 @@ mod responses_compat;
 mod responses_tools;
 mod routing_cli;
 mod routing_plan;
+mod service;
 mod session_pin;
 use model_routing::policy_target;
 mod routing;
@@ -630,6 +631,9 @@ async fn current_metrics(State(app): State<Arc<AppState>>, headers: HeaderMap) -
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "service") {
+        return service::run(&args[1..]);
+    }
     if args.first().is_some_and(|arg| arg == "routing") {
         if args
             .get(1)
