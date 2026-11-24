@@ -315,11 +315,11 @@ fn fixture_with_operator(
     persist: bool,
     operator: bool,
 ) -> Fixture {
-    fixture_with_auth_source(base, cloud, route, persist, operator, false)
+    fixture_with_auth_source(base, cloud, route, persist, operator, None)
 }
 
-fn fixture_with_cli_auth(base: &str) -> Fixture {
-    fixture_with_auth_source(base, Some(true), true, false, false, true)
+fn fixture_with_cli_auth(base: &str, cli_access: &str) -> Fixture {
+    fixture_with_auth_source(base, Some(true), true, false, false, Some(cli_access))
 }
 
 fn fixture_with_auth_source(
@@ -328,7 +328,7 @@ fn fixture_with_auth_source(
     route: bool,
     persist: bool,
     operator: bool,
-    cli_auth: bool,
+    cli_access: Option<&str>,
 ) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
@@ -354,12 +354,12 @@ fn fixture_with_auth_source(
         "routes":[{"name":"local","kind":"local","base_url":format!("{base}/v1"),"model":"local-fixture","safe_concurrency":1,"context_limit":2000,"adapter_version":"synthetic","capabilities":["text","responses"],"streaming":true,"enabled":true}],
         "aliases":{"local-test":{"context_limit":2000,"capabilities":["text","responses"],"routes":[{"route":"local","priority":0}]}}
     });
-    if cli_auth {
+    if let Some(cli_access) = cli_access {
         let cli_dir = dir.path().join(".codex");
         fs::create_dir(&cli_dir).unwrap();
         fs::set_permissions(&cli_dir, fs::Permissions::from_mode(0o755)).unwrap();
         let cli_path = cli_dir.join("auth.json");
-        let cli_access = cli_access_token();
+
         fs::write(
             &cli_path,
             json!({"auth_mode":"chatgpt","tokens":{"access_token":cli_access,"account_id":"fixture-account"}}).to_string(),
@@ -397,7 +397,9 @@ fn fixture_with_auth_source(
 #[tokio::test]
 async fn cli_access_token_reaches_loopback_upstream_without_workload_key_or_oauth_refresh() {
     let fake = fake().await;
-    let fixture = fixture_with_cli_auth(&fake.base);
+    // Generate the exp-bearing token once so crossing a clock tick cannot change the expectation.
+    let cli_access = cli_access_token();
+    let fixture = fixture_with_cli_auth(&fake.base, &cli_access);
     let response = invoke(
         &fixture,
         "responses",
@@ -413,7 +415,10 @@ async fn cli_access_token_reaches_loopback_upstream_without_workload_key_or_oaut
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .unwrap();
-    assert_eq!(authorization, format!("Bearer {}", cli_access_token()));
+    assert!(
+        authorization == format!("Bearer {cli_access}"),
+        "the upstream did not receive the fixture's CLI access token"
+    );
     assert_ne!(authorization, format!("Bearer {WORKLOAD}"));
     assert_eq!(
         requests[0].1.get("chatgpt-account-id").unwrap(),
