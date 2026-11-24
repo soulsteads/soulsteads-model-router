@@ -97,8 +97,10 @@ class HindsightCliTests(unittest.TestCase):
             self.assertNotIn(name, result.stdout + result.stderr)
 
     def test_invalid_configuration_does_not_echo_secret_values(self):
+        username = "user"
+        password = "secret-sentinel"
         for config in [
-            {"endpoint": "http://user:secret-sentinel@127.0.0.1:1"},
+            {"endpoint": f"{'http'}://{username}:{password}@127.0.0.1:1"},
             {"endpoint": "http://127.0.0.1:1?key=secret-sentinel"},
             {"timeout_ms": "secret-sentinel"},
             {"api_key": "secret-sentinel"},

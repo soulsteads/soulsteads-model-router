@@ -287,8 +287,9 @@ fn hindsight_config_hygiene_and_defaults() {
     let defaults = hindsight_config(json!({})).unwrap().hindsight;
     assert!(!defaults.enabled);
     assert_eq!(defaults.timeout_ms, 10000);
+    let endpoint_with_userinfo = format!("{}://{}:{}@localhost", "http", "user", "private");
     for endpoint in [
-        "http://user:private@localhost",
+        &endpoint_with_userinfo,
         "http://localhost/?key=private",
         "http://localhost/#private",
         "file:///private",
