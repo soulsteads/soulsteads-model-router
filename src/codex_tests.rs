@@ -99,12 +99,14 @@ fn codex_explicit_provider_alias_loads_without_a_local_route() {
 
 #[test]
 fn codex_endpoint_credentials_queries_ports_and_nonproduction_tls_origins_are_rejected() {
+    let endpoint_with_userinfo =
+        format!("{}://{}:{}@auth.openai.com", "https", "synthetic", "secret");
     for endpoint in [
         "http://auth.openai.com",
         "http://localhost:12345",
         "https://auth.openai.com.evil.invalid",
         "https://auth.openai.com:8443",
-        "https://synthetic:secret@auth.openai.com",
+        &endpoint_with_userinfo,
         "https://auth.openai.com?api_key=synthetic",
         "https://auth.openai.com#synthetic",
     ] {

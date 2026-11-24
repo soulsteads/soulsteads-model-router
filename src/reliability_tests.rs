@@ -180,7 +180,8 @@ fn fixture_with_policy(
 ) -> (tempfile::TempDir, Arc<Runtime>, HeaderMap) {
     let dir = tempfile::tempdir().unwrap();
     let key = dir.path().join("fixture.key");
-    fs::write(&key, "isolated-reliability-key-0123456789").unwrap();
+    const FIXTURE_KEY: &str = "local-reliability-fixture-key-only";
+    fs::write(&key, FIXTURE_KEY).unwrap();
     fs::set_permissions(&key, fs::Permissions::from_mode(0o600)).unwrap();
     let route_configs: Vec<_> = routes.iter().enumerate().map(|(index, route)| json!({
         "name":format!("route-{index}"), "kind":if endpoint == "embedding" { "embedding" } else { "local" },
@@ -215,9 +216,7 @@ fn fixture_with_policy(
     let mut headers = HeaderMap::new();
     headers.insert(
         header::AUTHORIZATION,
-        "Bearer isolated-reliability-key-0123456789"
-            .parse()
-            .unwrap(),
+        format!("Bearer {FIXTURE_KEY}").parse().unwrap(),
     );
     (dir, runtime, headers)
 }

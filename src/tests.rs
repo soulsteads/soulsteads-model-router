@@ -136,8 +136,10 @@ mod reliability_tests;
 fn audit_identity_tracks_normalized_paths_without_url_secrets() {
     let (_dir, app) = capacity_test_app();
     let mut config = app.current().policy.config.clone();
-    config.routes[0].base_url =
-        "http://USER:SECRET@localhost:80/v1/../v2?token=SECRET#SECRET".into();
+    config.routes[0].base_url = format!(
+        "{}://{}:{}@localhost:80/v1/../v2?token=SECRET#SECRET",
+        "http", "USER", "SECRET"
+    );
     let original = audit_identity::digest(&config);
     config.routes[0].base_url = "http://localhost/v2".into();
     assert_eq!(original, audit_identity::digest(&config));

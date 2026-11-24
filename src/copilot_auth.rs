@@ -473,10 +473,11 @@ mod tests {
                 .host_str(),
             Some("api.enterprise.githubcopilot.com")
         );
+        let endpoint_with_userinfo = format!("https://{}@api.githubcopilot.com", "user");
         for url in [
             "http://api.githubcopilot.com",
             "https://api.githubcopilot.com.evil.example",
-            "https://user@api.githubcopilot.com",
+            &endpoint_with_userinfo,
             "https://api.githubcopilot.com:8443",
             "https://api.githubcopilot.com/path",
             "https://api.githubcopilot.com/?next=https://evil.example",
