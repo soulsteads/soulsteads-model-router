@@ -82,8 +82,8 @@ never print its value, reference path, endpoint or upstream error body.
 ## Status and read-only checks
 
 ```sh
-slotline hindsight status /absolute/path/slotline.yaml
-slotline hindsight check /absolute/path/slotline.yaml
+soulsteads-router hindsight status /absolute/path/slotline.yaml
+soulsteads-router hindsight check /absolute/path/slotline.yaml
 ```
 
 Both commands print a JSON object. They read local policy configuration without
@@ -246,8 +246,8 @@ that permits loopback sockets and has a private temporary directory:
 ```sh
 cargo test --locked hindsight_
 cargo build --locked
-python3 tests/hindsight_cli.py /path/to/slotline
-SLOTLINE_TEST_BINARY=/path/to/slotline SLOTLINE_TEST_HOST=YOUR_ASSIGNED_TAILNET_IPV4 \
+python3 tests/hindsight_cli.py /path/to/soulsteads-router
+SLOTLINE_TEST_BINARY=/path/to/soulsteads-router SLOTLINE_TEST_HOST=YOUR_ASSIGNED_TAILNET_IPV4 \
   python3 tests/hindsight_http.py
 ```
 

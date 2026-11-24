@@ -17,7 +17,7 @@ import urllib.request
 import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
-BINARY = Path(os.environ.get("SLOTLINE_TEST_BINARY", str(ROOT / "target/release/slotline")))
+BINARY = Path(os.environ.get("SLOTLINE_TEST_BINARY", str(ROOT / "target/release/soulsteads-router")))
 HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.127.255.254")
 PORT = 4012
 KEY = "slotline-mock-operator-key-1234567890"

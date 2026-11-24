@@ -44,10 +44,12 @@ The report is bounded as well: 64 KiB per input line, 4,096 pending requests, 1,
 
 ## Run the report
 
-Run from the repository root. These examples use the optional setup guide's `slotline.service`; substitute your own unit name. The script reads tracing JSONL from standard input by default, or from `--input`:
+Run from the repository root. These examples use the installer guide's
+`soulsteads-router.service`; substitute your own unit name. The script reads tracing
+JSONL from standard input by default, or from `--input`:
 
 ```sh
-journalctl --user -u slotline.service --since '2 hours ago' -o cat --no-pager \
+journalctl --user -u soulsteads-router.service --since '2 hours ago' -o cat --no-pager \
   | python3 scripts/audit_report.py
 python3 scripts/audit_report.py --input /path/to/slotline.jsonl
 ```
@@ -55,7 +57,7 @@ python3 scripts/audit_report.py --input /path/to/slotline.jsonl
 To filter by terminal-event time, use an inclusive `--since` and/or exclusive `--until`. Timestamps must use strict ISO `T` syntax with a valid timezone offset; `--since` must precede `--until`. Replace the illustrative timestamps below and export a journal range covering your chosen window, including earlier request starts.
 
 ```sh
-journalctl --user -u slotline.service --since '2 hours ago' -o cat --no-pager \
+journalctl --user -u soulsteads-router.service --since '2 hours ago' -o cat --no-pager \
   | python3 scripts/audit_report.py --since 2026-10-02T17:00:00Z --until 2026-10-02T19:00:00Z
 ```
 

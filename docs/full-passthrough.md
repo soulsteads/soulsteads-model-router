@@ -61,7 +61,7 @@ aliases:
 ```
 
 The context/capability fields remain configuration/catalog metadata; they do not
-become passthrough enforcement. Validate with `slotline --check-config CONFIG.yaml`
+become passthrough enforcement. Validate with `soulsteads-router --check-config CONFIG.yaml`
 and use the [safe update procedure](OPERATIONS.md#reload-policy-or-restart-safely).
 Do not assume a previously configured client or backend now has adequate limits.
 

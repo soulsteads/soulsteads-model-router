@@ -3,7 +3,7 @@ WORKDIR /src
 ENV CARGO_BUILD_JOBS=2
 COPY Cargo.toml Cargo.lock build.rs ./
 COPY src/ src/
-RUN cargo build --release --locked --bin slotline
+RUN cargo build --release --locked --bin soulsteads-router
 
 FROM docker.io/library/debian:trixie-slim@sha256:a72b4433de1cf7d6bae0c4cee74d0547f58601a643b3375f070c51600d63b6b2
 LABEL org.opencontainers.image.source="https://github.com/soulsteads/soulsteads-model-router"
@@ -14,10 +14,10 @@ RUN apt-get update \
     && useradd --uid 10001 --gid 10001 --home-dir /data/home --no-create-home app \
     && install -d -m 0700 -o 10001 -g 10001 /data /data/home
 COPY LICENSE NOTICE third_party/LiteLLM-LICENSE.txt /usr/share/doc/soulsteads-model-router/
-COPY --from=build /src/target/release/slotline /usr/local/bin/slotline
+COPY --from=build /src/target/release/soulsteads-router /usr/local/bin/soulsteads-router
 ENV HOME=/data/home
 USER 10001:10001
 WORKDIR /data
 STOPSIGNAL SIGINT
-ENTRYPOINT ["/usr/local/bin/slotline"]
+ENTRYPOINT ["/usr/local/bin/soulsteads-router"]
 CMD ["/data/config.yaml"]

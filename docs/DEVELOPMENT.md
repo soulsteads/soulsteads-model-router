@@ -41,7 +41,7 @@ are disposable and separate from an installed service.
 ```sh
 cargo build --release --locked
 export SLOTLINE_TEST_HOST=100.127.255.254  # replace with your own assigned address
-export SLOTLINE_TEST_BINARY="$PWD/target/release/slotline"
+export SLOTLINE_TEST_BINARY="$PWD/target/release/soulsteads-router"
 PYTHONDONTWRITEBYTECODE=1 python3 tests/mock_validation.py
 PYTHONDONTWRITEBYTECODE=1 python3 tests/key_store_http.py
 PYTHONDONTWRITEBYTECODE=1 python3 tests/policy_reload_validation.py

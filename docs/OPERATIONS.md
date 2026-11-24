@@ -1,7 +1,7 @@
 # Operate the gateway
 
 Use this guide after the [setup walkthrough](SETUP.md) succeeds. Commands assume
-`slotline` is on `PATH`; otherwise use `target/release/slotline` from the checkout.
+`soulsteads-router` is on `PATH`; otherwise use `target/release/soulsteads-router` from the checkout.
 Set `CONFIG` to the policy used by the **running** listener, not an example or an
 old deployment copy.
 
@@ -12,8 +12,8 @@ CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/slotline/config.yaml"
 ## Inspect live status
 
 ```sh
-slotline status "$CONFIG"
-slotline status "$CONFIG" --json
+soulsteads-router status "$CONFIG"
+soulsteads-router status "$CONFIG" --json
 ```
 
 The local CLI reads the running gateway through an owner-only Unix control
@@ -22,7 +22,7 @@ access that socket and load the policy. File-backed policies require their
 policy directory to be private and writable. Verifier-store policies put the
 socket in the private store directory.
 
-Without an explicit policy path, `slotline status` uses `SLOTLINE_CONFIG`, then
+Without an explicit policy path, `soulsteads-router status` uses `SLOTLINE_CONFIG`, then
 `$XDG_CONFIG_HOME/slotline/config.yaml` or `~/.config/slotline/config.yaml`.
 Remote clients can use operator-authenticated HTTP `/status` instead. See the
 [setup request example](SETUP.md#4-check-from-another-terminal) for reading a key
@@ -129,8 +129,8 @@ workload budgets.
 ## Reload policy or restart safely
 
 ```sh
-slotline --check-config "$CONFIG"
-slotline reload "$CONFIG"
+soulsteads-router --check-config "$CONFIG"
+soulsteads-router reload "$CONFIG"
 ```
 
 `--check-config` validates policy and credential material, not live inference.
@@ -153,10 +153,10 @@ For changes outside that scope:
 3. Drain active work, or get explicit authority for an interrupting restart.
    Do not use a zero slot count as evidence of no passthrough traffic.
 4. Replace/restart only the owning service. For the setup guide's optional unit,
-   use `systemctl --user restart slotline.service`.
+   use `systemctl --user restart soulsteads-router.service`.
 5. Verify the intended binary/policy, authenticated catalog, route health, and a
    real completion. Verify the restore procedure before migrating more clients.
 
-For the example user service, inspect `systemctl --user status slotline.service`
-and `journalctl --user -u slotline.service`. These commands do not establish the
+For the installed user service, inspect `systemctl --user status soulsteads-router.service`
+and `journalctl --user -u soulsteads-router.service`. These commands do not establish the
 identity or health of an independently installed service with another name.

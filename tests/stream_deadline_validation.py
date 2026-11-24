@@ -6,7 +6,7 @@ Tailnet IPv4 and SLOTLINE_TEST_PORT to an unused port when needed.
 import json, pathlib, tempfile, subprocess, threading, time, urllib.request, urllib.error, os
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-BIN = os.environ.get('SLOTLINE_TEST_BINARY', str(ROOT / 'target/release/slotline'))
+BIN = os.environ.get('SLOTLINE_TEST_BINARY', str(ROOT / 'target/release/soulsteads-router'))
 HOST = os.environ.get('SLOTLINE_TEST_HOST', '100.127.255.254')
 PORT = int(os.environ.get('SLOTLINE_TEST_PORT', '14013'))
 class Backend(BaseHTTPRequestHandler):

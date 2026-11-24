@@ -1,6 +1,6 @@
 # Slotline key manager
 
-`slotline keys` is a local administrator CLI. It has no HTTP route. A Slotline
+`soulsteads-router keys` is a local administrator CLI. It has no HTTP route. A Slotline
 policy can set `key_store: /absolute/path/to/keys.sqlite3` and omit
 `credentials` to authenticate inference requests against an in-memory
 verifier snapshot. File-backed credentials remain supported; choose one mode.
@@ -19,16 +19,16 @@ timestamp, and result.
 # not a sequence to run blindly. The binary must be on PATH.
 umask 077
 STORE="${XDG_CONFIG_HOME:-$HOME/.config}/slotline/keys.sqlite3"
-slotline keys init "$STORE"
-slotline keys issue "$STORE" policy.json > client.key
-slotline keys list "$STORE"
-slotline keys verify "$STORE" < client.key
-slotline keys rotate "$STORE" example-client 600 > replacement.key
+soulsteads-router keys init "$STORE"
+soulsteads-router keys issue "$STORE" policy.json > client.key
+soulsteads-router keys list "$STORE"
+soulsteads-router keys verify "$STORE" < client.key
+soulsteads-router keys rotate "$STORE" example-client 600 > replacement.key
 # Replace KEY_PREFIX with the nonsecret prefix returned by `keys list`.
-slotline keys revoke-key "$STORE" KEY_PREFIX
-slotline keys revoke-credential "$STORE" example-client
-slotline keys backup "$STORE" "${STORE}.backup"
-slotline keys restore "${STORE}.backup" "${STORE}.restored"
+soulsteads-router keys revoke-key "$STORE" KEY_PREFIX
+soulsteads-router keys revoke-credential "$STORE" example-client
+soulsteads-router keys backup "$STORE" "${STORE}.backup"
+soulsteads-router keys restore "${STORE}.backup" "${STORE}.restored"
 ```
 
 `policy.json` contains non-secret policy, for example:
@@ -64,7 +64,7 @@ reclaims an owned stale socket after an unclean stop.
 ## Route-policy reload is separate
 
 The key-control socket is not the route-policy control socket. With `key_store`,
-`slotline reload CONFIG.yaml` uses `<key_store>.policy.sock` in the private store
+`soulsteads-router reload CONFIG.yaml` uses `<key_store>.policy.sock` in the private store
 directory. File-key policies use `CONFIG.yaml.policy.sock` and require a private,
 writable policy directory. Neither socket is an HTTP API.
 

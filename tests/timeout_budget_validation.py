@@ -78,7 +78,7 @@ aliases:
 """
         path = root / "config.yaml"
         path.write_text(config)
-        binary = os.environ.get("SLOTLINE_TEST_BINARY", str(ROOT / "target/release/slotline"))
+        binary = os.environ.get("SLOTLINE_TEST_BINARY", str(ROOT / "target/release/soulsteads-router"))
         check = subprocess.run([binary, "--check-config", str(path)], capture_output=True, text=True)
         assert check.returncode == 0, check.stderr
         for old, bad in (("attempt_seconds: 3", "attempt_seconds: 0"), ("total_seconds: 4", "total_seconds: 2")):

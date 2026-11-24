@@ -7,6 +7,7 @@ on:
     paths:
       - .github/workflows/release.yml
       - 'tests/test_release_*.py'
+      - tests/service_install_validation.py
       - Cargo.toml
       - Cargo.lock
       - build.rs
@@ -43,11 +44,13 @@ jobs:
           export CARGO_TARGET_DIR="$RUNNER_TEMP/release-target"
           export CARGO_PROFILE_RELEASE_DEBUG=0 CARGO_PROFILE_RELEASE_STRIP=debuginfo
           # Ubuntu 24.04 GNU/Linux build; do not include dev/test executables.
-          cargo +1.100.0 build --release --locked --target x86_64-unknown-linux-gnu --bin slotline
-          install -m 0755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/slotline" "$RUNNER_TEMP/$bundle/slotline"
+          cargo +1.100.0 build --release --locked --target x86_64-unknown-linux-gnu --bin soulsteads-router
+          # Exercise both unit scopes without contacting systemd or a provider.
+          PYTHONDONTWRITEBYTECODE=1 python3 tests/service_install_validation.py --binary "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/soulsteads-router"
+          install -m 0755 "$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/soulsteads-router" "$RUNNER_TEMP/$bundle/soulsteads-router"
           install -m 0644 LICENSE NOTICE "$RUNNER_TEMP/$bundle/"
           install -m 0644 third_party/LiteLLM-LICENSE.txt "$RUNNER_TEMP/$bundle/"
-          # slotline takes a config path, not --help. Validate a disposable fixture without starting it.
+          # The router takes a config path, not --help. Validate a disposable fixture without starting it.
           (
             umask 077
             smoke=$(mktemp -d "$RUNNER_TEMP/slotline-smoke.XXXXXXXX")
@@ -64,7 +67,7 @@ jobs:
           aliases:
             fixture: {context_limit: 2000, capabilities: [text], routes: [{route: fixture, priority: 10}]}
           YAML
-            "$RUNNER_TEMP/$bundle/slotline" --check-config "$smoke/smoke.yaml"
+            "$RUNNER_TEMP/$bundle/soulsteads-router" --check-config "$smoke/smoke.yaml"
           )
           cargo +1.100.0 metadata --format-version 1 --locked --filter-platform x86_64-unknown-linux-gnu > "$RUNNER_TEMP/cargo-metadata.json"
           python3 - "$RUNNER_TEMP/cargo-metadata.json" "$RUNNER_TEMP/$bundle" <<'PY'

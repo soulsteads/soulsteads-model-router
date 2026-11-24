@@ -99,6 +99,17 @@ class ReleaseAssetTests(unittest.TestCase):
         self.assertEqual(uploads, [], result.stderr)
         self.assertNotEqual(result.returncode, 0)
 
+    def test_builds_and_installs_the_renamed_production_executable(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("--bin soulsteads-router", workflow)
+        self.assertIn('/release/soulsteads-router" "$RUNNER_TEMP/$bundle/soulsteads-router"', workflow)
+        self.assertIn('"$RUNNER_TEMP/$bundle/soulsteads-router" --check-config', workflow)
+
+    def test_release_build_smoke_tests_the_service_installer(self):
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("tests/service_install_validation.py --binary", workflow)
+        self.assertIn('$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/soulsteads-router', workflow)
+
     def test_uploads_only_the_archive_and_checksum_manifest(self):
         result, uploads = self.publish()
         self.assertEqual(result.returncode, 0, result.stderr)
