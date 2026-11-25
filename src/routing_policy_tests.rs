@@ -1040,6 +1040,174 @@ async fn decision_selects_a_local_target_for_responses() {
 }
 
 #[tokio::test]
+async fn managed_chat_accepts_hermes_reasoning_alias_without_forwarding_it() {
+    let upstream = decision_upstream().await;
+    let fixture = fixture_with_custom_config(
+        &upstream,
+        json!({"default_target":"target"}),
+        None,
+        false,
+        |config| config["credentials"][0]["burst"] = json!(12),
+        |_| {},
+    );
+    let invoke_chat = |message| {
+        invoke(
+            &fixture,
+            "chat/completions",
+            json!({"model":"target","max_tokens":16,"messages":[
+                {"role":"user","content":"start"}, message,
+                {"role":"user","content":"continue"}
+            ]}),
+        )
+    };
+    for (message, expected) in [
+        (
+            json!({"role":"assistant","content":"prior","reasoning_content":"fixture reasoning","reasoning":"fixture reasoning"}),
+            json!("fixture reasoning"),
+        ),
+        (
+            json!({"role":"assistant","content":"prior","reasoning":"alias only"}),
+            json!("alias only"),
+        ),
+        (
+            json!({"role":"assistant","content":"prior","reasoning":null}),
+            Value::Null,
+        ),
+        (
+            json!({"role":"assistant","content":"prior","reasoning_content":"canonical only"}),
+            json!("canonical only"),
+        ),
+    ] {
+        let response = invoke_chat(message).await;
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&body));
+        let requests = upstream.state.requests.lock().unwrap();
+        let sent = &requests.last().unwrap().1["messages"][1];
+        assert_eq!(sent.get("reasoning_content"), Some(&expected));
+        assert!(sent.get("reasoning").is_none());
+        assert_eq!(sent["content"], "prior");
+    }
+    let sent = upstream.state.target_calls.load(AtomicOrdering::Relaxed);
+    assert_eq!(sent, 4);
+    for message in [
+        json!({"role":"assistant","content":"prior","reasoning_content":"fixture reasoning","reasoning":"PRIVATE_CONFLICT"}),
+        json!({"role":"assistant","content":"prior","reasoning":["PRIVATE_CONFLICT"]}),
+        json!({"role":"user","content":"prior","reasoning":null}),
+        json!({"role":"assistant","content":"prior","reasoning":"fixture reasoning","reasoning_details":[]}),
+    ] {
+        let response = invoke_chat(message).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        assert!(!String::from_utf8_lossy(&body).contains("PRIVATE_CONFLICT"));
+        assert_eq!(
+            upstream.state.target_calls.load(AtomicOrdering::Relaxed),
+            sent
+        );
+    }
+    assert_eq!(
+        upstream.state.decision_calls.load(AtomicOrdering::Relaxed),
+        0
+    );
+}
+
+#[tokio::test]
+async fn virtual_chat_validates_reasoning_before_native_provider_preflight() {
+    let upstream = decision_upstream().await;
+    for target in ["cloud", "copilot-chat"] {
+        let fixture = fixture_with_custom_config(
+            &upstream,
+            json!({"default_target":target}),
+            Some(true),
+            false,
+            |config| {
+                config["credentials"][0]["burst"] = json!(5);
+                config["credentials"][0]["aliases"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!("copilot-chat"));
+                config["credentials"][0]["allowed_routes"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!("copilot"));
+                let missing = Path::new(config["codex"]["account_file"].as_str().unwrap())
+                    .with_file_name("missing-copilot");
+                config["copilot"] = json!({"enabled":true,"managed_auth_file":missing,"models":[{
+                    "alias":"copilot-chat","model":"synthetic","endpoint":"chat_completions"
+                }]});
+            },
+            |_| {},
+        );
+        let request = |role| {
+            json!({"model":"smart","extra_body":{"messages":[
+                {"role":"user","content":"start"},
+                {"role":role,"content":"synthetic","reasoning":null}
+            ]}})
+        };
+        let response = invoke(&fixture, "chat/completions", request("assistant")).await;
+        let (status, code) = if target == "cloud" {
+            (StatusCode::SERVICE_UNAVAILABLE, "codex_auth_unavailable")
+        } else {
+            (StatusCode::BAD_GATEWAY, "upstream_auth_error")
+        };
+        let actual_status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        assert_eq!(actual_status, status, "{target}");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap()["error"]["code"],
+            code
+        );
+        let mut duplicate = request("assistant");
+        duplicate["messages"] = json!([{"role":"user","content":"start"}]);
+        duplicate["extra_body"]["messages"][1] =
+            json!({"role":"user","content":"synthetic","reasoning_content":null});
+        let response = invoke(&fixture, "chat/completions", duplicate).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap()["error"]["code"],
+            "unsupported_parameter"
+        );
+        for message in [
+            json!({"role":"user","content":"synthetic","reasoning":null}),
+            json!({"role":"user","content":"synthetic","reasoning_content":null}),
+            json!({"role":"assistant","content":"synthetic","reasoning_content":[]}),
+        ] {
+            let mut malformed = request("assistant");
+            malformed["extra_body"]["messages"][1] = message;
+            let response = invoke(&fixture, "chat/completions", malformed).await;
+            let status = response.status();
+            let body = axum::body::to_bytes(response.into_body(), 4096)
+                .await
+                .unwrap();
+            assert_eq!(
+                status,
+                StatusCode::BAD_REQUEST,
+                "{target}: {}",
+                String::from_utf8_lossy(&body)
+            );
+            assert_eq!(
+                serde_json::from_slice::<Value>(&body).unwrap()["error"]["code"],
+                "invalid_request"
+            );
+        }
+    }
+    assert_eq!(
+        upstream.state.decision_calls.load(AtomicOrdering::Relaxed),
+        0
+    );
+    assert_eq!(upstream.state.target_calls.load(AtomicOrdering::Relaxed), 0);
+}
+
+#[tokio::test]
 async fn unpinned_continuations_fail_closed_before_local_judge_or_target_dispatch() {
     for (endpoint, body) in [
         (
@@ -1047,6 +1215,13 @@ async fn unpinned_continuations_fail_closed_before_local_judge_or_target_dispatc
             json!({"model":"smart","max_tokens":16,"messages":[
                 {"role":"user","content":"run"},
                 {"role":"assistant","content":"prior","reasoning_content":"opaque continuation"}
+            ]}),
+        ),
+        (
+            "chat/completions",
+            json!({"model":"smart","max_tokens":16,"messages":[
+                {"role":"user","content":"run"},
+                {"role":"assistant","content":"prior","reasoning":"opaque continuation"}
             ]}),
         ),
         (

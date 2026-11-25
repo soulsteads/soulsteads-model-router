@@ -93,8 +93,15 @@ pub(crate) fn inspect(
     input_bytes: usize,
 ) -> Result<Inspection, &'static str> {
     let mut normalized = request.clone();
-    crate::request_validation::project_extra_body(&mut normalized, true)
-        .map_err(|error| error.code)?;
+    match endpoint {
+        config::RoutingEndpoint::Chat => {
+            crate::request_validation::project_managed_chat(&mut normalized)
+        }
+        config::RoutingEndpoint::Responses => {
+            crate::request_validation::project_extra_body(&mut normalized, true)
+        }
+    }
+    .map_err(|error| error.code)?;
     if normalized.get("stream").is_some_and(|v| !v.is_boolean())
         || normalized.get("tools").is_some_and(|v| !v.is_array())
         || match endpoint {
@@ -216,6 +223,7 @@ pub(crate) fn has_continuation_state(request: &Value, endpoint: config::RoutingE
                     || present(item, "tool_call_id")
                     || present(item, "function_call")
                     || present(item, "reasoning_content")
+                    || (endpoint == config::RoutingEndpoint::Chat && present(item, "reasoning"))
                     || present(item, "encrypted_content")
                     || item["type"].as_str().is_some_and(|kind| {
                         RESPONSES_STATE_ITEMS.contains(&kind)
@@ -506,17 +514,27 @@ fn request_fits_with_prompt_sizing<'a>(
 ) -> bool {
     let Some(alias) = config.aliases.get(target) else {
         if config.codex.alias.as_deref() == Some(target) {
-            return crate::codex::project_request(
-                original_request,
-                endpoint == config::RoutingEndpoint::Chat,
-            )
-            .is_ok();
+            if endpoint == config::RoutingEndpoint::Chat {
+                let mut request = original_request.clone();
+                return crate::request_validation::project_virtual_chat_reasoning(&mut request)
+                    .is_ok()
+                    && crate::codex::project_request(&request, true).is_ok();
+            }
+            return crate::codex::project_request(original_request, false).is_ok();
         }
         // Copilot account/network capabilities are unavailable to pure validation.
         return true;
     };
     let mut request = original_request.clone();
-    if crate::normalize_extra_body(&mut request, true).is_err() {
+    let projection = match endpoint {
+        config::RoutingEndpoint::Chat => {
+            crate::request_validation::project_managed_chat(&mut request)
+        }
+        config::RoutingEndpoint::Responses => {
+            crate::request_validation::project_extra_body(&mut request, true)
+        }
+    };
+    if projection.is_err() {
         return false;
     }
     request["model"] = Value::String(target.to_owned());
