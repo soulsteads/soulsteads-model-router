@@ -59,6 +59,12 @@ Text, bounded function tools, tool-result continuation, and streamed tool calls
 are supported on capable routes. Structured output supports `json_schema` and
 `json_object` only when declared on the alias and selected route.
 
+Managed Chat accepts `reasoning` as an alias for `reasoning_content` on
+assistant messages. The value must be a string or `null`. If both fields are
+present, their values must match. Only `reasoning_content` is forwarded.
+Non-null reasoning remains continuation state for virtual aliases, regardless
+of which spelling the client sends.
+
 Chat model arguments can appear at the top level or inside `extra_body`, which
 is flattened before forwarding. Bounded extra model arguments are left for the
 upstream to interpret; forwarding is not a guarantee it supports them. Requests

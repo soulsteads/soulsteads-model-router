@@ -68,6 +68,12 @@ async fn chat_inner(
         Ok(target) => target,
         Err(error) => return error,
     } {
+        // Policy inspection validated the flattened view. Preserve the native
+        // provider's envelope when projecting the outgoing assistant history.
+        if let Err(error) = project_virtual_chat_reasoning(&mut request) {
+            runtime.rejects.fetch_add(1, Ordering::Relaxed);
+            return json_error(StatusCode::BAD_REQUEST, error.code, error.message);
+        }
         alias_name = target.target.clone();
         *selection = Some(target);
         request["model"] = Value::String(alias_name.clone());
@@ -123,9 +129,9 @@ async fn chat_inner(
             "Model requires /v1/embeddings",
         );
     }
-    if let Err(error) = normalize_extra_body(&mut request, true) {
+    if let Err(error) = project_managed_chat(&mut request) {
         runtime.rejects.fetch_add(1, Ordering::Relaxed);
-        return error;
+        return json_error(StatusCode::BAD_REQUEST, error.code, error.message);
     }
     let default_thinking = alias
         .routes

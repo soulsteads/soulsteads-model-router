@@ -14,6 +14,56 @@ pub(super) fn normalize_extra_body(
     project_extra_body(value, rewrite_thinking)
         .map_err(|error| json_error(StatusCode::BAD_REQUEST, error.code, error.message))
 }
+// Managed Chat uses a single reasoning carrier for validation, sizing, and forwarding.
+pub(crate) fn project_managed_chat(value: &mut Value) -> Result<(), ProjectionError> {
+    project_extra_body(value, true)?;
+    canonicalize_chat_reasoning(value)
+}
+
+// Virtual Chat may select native providers with their own extra_body semantics.
+// Canonicalize history without flattening the native provider's request envelope.
+pub(crate) fn project_virtual_chat_reasoning(value: &mut Value) -> Result<(), ProjectionError> {
+    canonicalize_chat_reasoning(value)?;
+    if let Some(extra) = value.get_mut("extra_body") {
+        canonicalize_chat_reasoning(extra)?;
+    }
+    Ok(())
+}
+
+fn canonicalize_chat_reasoning(value: &mut Value) -> Result<(), ProjectionError> {
+    if let Some(messages) = value.get_mut("messages").and_then(Value::as_array_mut) {
+        for message in messages.iter_mut().filter_map(Value::as_object_mut) {
+            let reasoning = message.remove("reasoning");
+            let canonical = message.get("reasoning_content");
+            if reasoning.iter().chain(canonical).any(|value| {
+                message.get("role").and_then(Value::as_str) != Some("assistant")
+                    || !(value.is_null() || value.is_string())
+            }) {
+                return Err(ProjectionError {
+                    code: "invalid_request",
+                    message: "reasoning fields require an assistant message and string or null values",
+                });
+            }
+            let Some(reasoning) = reasoning else {
+                continue;
+            };
+            match message.entry("reasoning_content") {
+                serde_json::map::Entry::Vacant(entry) => {
+                    entry.insert(reasoning);
+                }
+                serde_json::map::Entry::Occupied(entry) if entry.get() != &reasoning => {
+                    return Err(ProjectionError {
+                        code: "invalid_request",
+                        message: "reasoning and reasoning_content must match when both are present",
+                    });
+                }
+                serde_json::map::Entry::Occupied(_) => {}
+            }
+        }
+    }
+    Ok(())
+}
+
 // The offline inspector shares exactly the same one-level merge and errors.
 pub(crate) fn project_extra_body(
     value: &mut Value,
