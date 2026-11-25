@@ -110,6 +110,24 @@ No model server or prebuilt binary is bundled.
 - [Migration](MIGRATION.md): move an existing client safely, with rollback.
 - [All documentation](docs/README.md): observability, advanced modes, and integrations.
 
+## Debian package
+
+Build an amd64 `.deb` from a Git checkout on Debian 13 or Ubuntu 24.04. Install
+`build-essential`, `binutils`, `pkg-config`, `cmake`, `libssl-dev`, `dpkg`,
+`python3` (3.11 or newer), and Rust 1.100.0 via `rustup`.
+Router packaging also needs `jq`, `openssl`, and `systemd-analyze` for offline checks.
+
+```sh
+scripts/build-deb.sh dist/debian
+```
+
+The package installs `soulsteads-router` under `/usr/bin` and preserves the release
+license and dependency notices. Install it with `sudo apt install ./dist/debian/*.deb`
+from the checkout. Installation does not create or start a service. A build
+reflects the build host’s library ABI; use one of the stated distributions for
+portable artifacts. The release workflow also builds a downloadable test `.deb`
+on pull requests or manual runs, without attaching it to a GitHub Release.
+
 ## License and release status
 
 Licensed under the [Apache License 2.0](LICENSE).

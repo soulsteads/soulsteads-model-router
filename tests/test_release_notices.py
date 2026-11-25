@@ -5,14 +5,13 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-import textwrap
 import unittest
 
 
-WORKFLOW = Path(__file__).resolve().parents[1] / '.github/workflows/release.yml'
+BUILD_SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/build-linux-bundle.sh'
 
 
-@unittest.skipUnless(WORKFLOW.is_file(), 'requires the source checkout release workflow')
+@unittest.skipUnless(BUILD_SCRIPT.is_file(), 'requires the source checkout release builder')
 class ReleaseNoticeTests(unittest.TestCase):
     def setUp(self):
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
@@ -30,8 +29,8 @@ class ReleaseNoticeTests(unittest.TestCase):
                           'manifest_path': str(self.source / 'Cargo.toml'),
                           'license': 'Apache-2.0', 'license_file': None}],
         }), encoding='utf-8')
-        workflow = WORKFLOW.read_text(encoding='utf-8')
-        self.script = textwrap.dedent(workflow.split("<<'PY'\n", 1)[1].split('\n          PY\n', 1)[0])
+        script = BUILD_SCRIPT.read_text(encoding='utf-8')
+        self.script = script.split("<<'PY'\n", 1)[1].split('\nPY\n', 1)[0]
         self.notices = self.bundle / 'dependency-notices'
 
     def generate(self):

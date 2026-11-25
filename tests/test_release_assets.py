@@ -12,7 +12,9 @@ import unittest
 
 ARCHIVE = "soulsteads-model-router-linux-x86_64.tar.gz"
 MANIFEST = "SHA256SUMS"
-WORKFLOW = Path(__file__).resolve().parents[1] / ".github/workflows/release.yml"
+ROOT = Path(__file__).resolve().parents[1]
+WORKFLOW = ROOT / ".github/workflows/release.yml"
+BUILD_SCRIPT = ROOT / "scripts/build-linux-bundle.sh"
 
 
 def publisher_script():
@@ -100,13 +102,14 @@ class ReleaseAssetTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
 
     def test_builds_and_installs_the_renamed_production_executable(self):
-        workflow = WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("scripts/build-linux-bundle.sh", WORKFLOW.read_text(encoding="utf-8"))
+        workflow = BUILD_SCRIPT.read_text(encoding="utf-8")
         self.assertIn("--bin soulsteads-router", workflow)
         self.assertIn('/release/soulsteads-router" "$RUNNER_TEMP/$bundle/soulsteads-router"', workflow)
         self.assertIn('"$RUNNER_TEMP/$bundle/soulsteads-router" --check-config', workflow)
 
     def test_release_build_smoke_tests_the_service_installer(self):
-        workflow = WORKFLOW.read_text(encoding="utf-8")
+        workflow = BUILD_SCRIPT.read_text(encoding="utf-8")
         self.assertIn("tests/service_install_validation.py --binary", workflow)
         self.assertIn('$CARGO_TARGET_DIR/x86_64-unknown-linux-gnu/release/soulsteads-router', workflow)
 
