@@ -1,6 +1,6 @@
 """Compiled offline routing acceptance. Uses only synthetic inputs; no live config.
 
-Set SLOTLINE_TEST_BINARY and TMPDIR. --manifest records named checks, counts and
+Set SOULSTEADS_ROUTER_TEST_BINARY and TMPDIR. --manifest records named checks, counts and
 blocked network-exclusion controls. No expected counts are copied from another suite.
 """
 import argparse
@@ -98,7 +98,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
     args = parser.parse_args()
-    binary = str(Path(os.environ["SLOTLINE_TEST_BINARY"]).resolve())
+    binary = str(Path(os.environ["SOULSTEADS_ROUTER_TEST_BINARY"]).resolve())
     checks = []
     cases = []
     directory = tempfile.mkdtemp(prefix="routing-offline-")
@@ -121,7 +121,7 @@ def main():
     config_path.write_text(json.dumps(config))
     input_path = root / "input.json"
     env = dict(os.environ, HOME=str(root / "absent-home"), XDG_CONFIG_HOME=str(root / "absent-xdg"),
-               XDG_CACHE_HOME=str(root / "absent-cache"), SLOTLINE_CONFIG="/synthetic/SYNTHETIC_LIVE_CONFIG_SENTINEL",
+               XDG_CACHE_HOME=str(root / "absent-cache"), SOULSTEADS_ROUTER_CONFIG="/synthetic/SYNTHETIC_LIVE_CONFIG_SENTINEL",
                HTTP_PROXY="http://127.0.0.1:9", HTTPS_PROXY="http://127.0.0.1:9")
 
     def check(name, condition):

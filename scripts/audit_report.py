@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Streaming, bounded-memory report over Slotline tracing JSON (stdin or file).
+"""Streaming, bounded-memory report over Soulsteads Router tracing JSON (stdin or file).
 
 Counts delivery outcomes, not answer quality. No inference-path work, dependencies,
 payload storage or request-ID output. Percentiles are fixed-bucket upper bounds.
@@ -333,7 +333,7 @@ def bounded_lines(stream):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--input', help='Slotline tracing JSONL; default stdin')
+    parser.add_argument('--input', help='Soulsteads Router tracing JSONL; default stdin')
     parser.add_argument('--since', help='inclusive ISO timestamp with timezone')
     parser.add_argument('--until', help='exclusive ISO timestamp with timezone')
     args = parser.parse_args()

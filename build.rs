@@ -52,7 +52,7 @@ fn main() {
         hash.update([0]);
     }
     println!(
-        "cargo:rustc-env=SLOTLINE_SOURCE_SHA256={:x}",
+        "cargo:rustc-env=SOULSTEADS_ROUTER_SOURCE_SHA256={:x}",
         hash.finalize()
     );
     let revision = Command::new("git")
@@ -84,8 +84,8 @@ fn main() {
             }
         });
     println!(
-        "cargo:rustc-env=SLOTLINE_SOURCE_REVISION={}",
+        "cargo:rustc-env=SOULSTEADS_ROUTER_SOURCE_REVISION={}",
         revision.trim()
     );
-    println!("cargo:rustc-env=SLOTLINE_SOURCE_STATE={dirty}");
+    println!("cargo:rustc-env=SOULSTEADS_ROUTER_SOURCE_STATE={dirty}");
 }

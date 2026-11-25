@@ -1,4 +1,4 @@
-"""Exercise class-scoped request deadlines against an isolated Slotline and slow backend."""
+"""Exercise class-scoped request deadlines against an isolated Soulsteads Router and slow backend."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -11,7 +11,7 @@ import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
-HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.127.255.254")
+HOST = os.environ.get("SOULSTEADS_ROUTER_TEST_HOST", "100.127.255.254")
 PORT = 4013
 
 
@@ -61,7 +61,7 @@ def main():
         root = Path(tmp)
         for name in ("slow", "regular"):
             key = root / f"{name}.key"
-            key.write_text(f"slotline-test-{name}-12345678901234567890")
+            key.write_text(f"soulsteads-router-test-{name}-12345678901234567890")
             key.chmod(0o600)
         config = f"""bind: {HOST}
 port: {PORT}
@@ -78,7 +78,7 @@ aliases:
 """
         path = root / "config.yaml"
         path.write_text(config)
-        binary = os.environ.get("SLOTLINE_TEST_BINARY", str(ROOT / "target/release/soulsteads-router"))
+        binary = os.environ.get("SOULSTEADS_ROUTER_TEST_BINARY", str(ROOT / "target/release/soulsteads-router"))
         check = subprocess.run([binary, "--check-config", str(path)], capture_output=True, text=True)
         assert check.returncode == 0, check.stderr
         for old, bad in (("attempt_seconds: 3", "attempt_seconds: 0"), ("total_seconds: 4", "total_seconds: 2")):

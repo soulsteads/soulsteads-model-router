@@ -23,8 +23,8 @@ a host home or the container-engine socket.
 
 ## Prepare a private policy and key
 
-Slotline does not run an inference server. Start with
-[the example policy](../config/slotline.example.yaml) on your host, then put a
+Soulsteads Router does not run an inference server. Start with
+[the example policy](../config/soulsteads-router.example.yaml) on your host, then put a
 copy with your backend's literal private/loopback IPv4 and exact model ID in a
 private `config.yaml` outside the checkout. For the local walkthrough, set
 `listener_mode: loopback`, `bind: 127.0.0.1`, and `port: 4011`. Change the
@@ -36,13 +36,13 @@ Generate a fresh example operator key and install the config in the private
 volume. No key is written to the build context or printed:
 
 ```sh
-# Set SLOTLINE_POLICY to the absolute path to your private config.yaml.
+# Set SOULSTEADS_ROUTER_POLICY to the absolute path to your private config.yaml.
 "$engine" run --rm -i --network none -v soulsteads-model-router-data:/data \
   --entrypoint sh "$image" -ec '
     umask 077; set -C
     cat > /data/config.yaml
     head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n" > /data/operator.key
-  ' < "$SLOTLINE_POLICY"
+  ' < "$SOULSTEADS_ROUTER_POLICY"
 "$engine" run --rm --network none -v soulsteads-model-router-data:/data \
   "$image" --check-config /data/config.yaml
 ```
@@ -55,13 +55,13 @@ not a substitute for the state volume.
 
 ## Run the router
 
-Use native Linux host networking for this recipe. Slotline rejects wildcard
+Use native Linux host networking for this recipe. Soulsteads Router rejects wildcard
 and LAN binds, so `-p` on a bridged container does not implement this setup.
 `--network host` shares the host's network namespace and makes the host's
 loopback backend reachable; do not use it for untrusted workloads. Keep the
 listener loopback-only for same-host use. No `-p` is needed or used. For a
 Tailnet deployment, bind only the operator's actual permitted Tailnet IPv4 and
-maintain the access controls in [Setup](SETUP.md). Slotline does not provide TLS.
+maintain the access controls in [Setup](SETUP.md). Soulsteads Router does not provide TLS.
 
 ```sh
 "$engine" run -d --name soulsteads-model-router --network host \
@@ -74,7 +74,7 @@ The `status` command can report backend health; it is not proof of inference.
 After the backend is ready, follow the [authenticated client check](SETUP.md#4-check-from-another-terminal).
 For that check, the operator can copy `/data/operator.key` into a mode-`0700`
 host directory outside the checkout using the engine's `cp`, restrict the
-copied file to mode `0600`, and set `SLOTLINE_KEY_FILE` to it. Use scoped client
+copied file to mode `0600`, and set `SOULSTEADS_ROUTER_KEY_FILE` to it. Use scoped client
 keys for regular traffic, not the operator key.
 
 ## Retain state and provenance
@@ -82,7 +82,7 @@ keys for regular traffic, not the operator key.
 Stop the old container before replacing it. Keep a private backup of the
 whole volume (including policy, verifier store and keys where configured),
 and keep the prior image for rollback. See [verifier-store operations](../KEYS.md)
-for rotation and recovery. The image excludes `.git`, so Slotline logs a source
+for rotation and recovery. The image excludes `.git`, so Soulsteads Router logs a source
 content hash but no embedded Git revision. Tag the local image for the exact
 reviewed source revision you build; do not treat a mutable tag as provenance.
 

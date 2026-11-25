@@ -66,7 +66,7 @@ fn codex_endpoint_policy_allows_loopback_fixtures_but_not_remote_http() {
         enabled: true,
         alias: Some("codex-test".into()),
         model: Some("gpt-test".into()),
-        account_file: Some("/var/lib/slotline-codex-fixture/account.json".into()),
+        account_file: Some("/var/lib/soulsteads-router-codex-fixture/account.json".into()),
         auth_source: crate::config::CodexAuthSource::Auto,
         cli_auth_file: None,
         auth_base_url: Some("http://127.0.0.1:40123".into()),
@@ -89,7 +89,7 @@ fn codex_explicit_provider_alias_loads_without_a_local_route() {
     let path = dir.path().join("policy.json");
     let value = serde_json::json!({
         "bind":"100.127.255.254", "port":14022,
-        "codex":{"enabled":true,"alias":"cloud-test","model":"gpt-fixture","account_file":"/var/lib/slotline-codex-fixture/account.json"},
+        "codex":{"enabled":true,"alias":"cloud-test","model":"gpt-fixture","account_file":"/var/lib/soulsteads-router-codex-fixture/account.json"},
         "credentials":[{"name":"fixture","key_file":key,"class":"test","aliases":["cloud-test"],"allowed_routes":["codex"],"cloud_allowed":true}],
         "routes":[], "aliases":{}
     });

@@ -1,4 +1,4 @@
-"""Exercise Slotline stream failures through the installed Rust Headroom sidecar."""
+"""Exercise Soulsteads Router stream failures through the installed Rust Headroom sidecar."""
 
 from http.client import IncompleteRead
 from pathlib import Path
@@ -15,11 +15,11 @@ from mock_validation import Backend
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SLOTLINE = Path(os.environ.get("SLOTLINE_TEST_BINARY", str(ROOT / "target/release/soulsteads-router")))
-HEADROOM = Path(os.environ.get("SLOTLINE_HEADROOM_PROXY", str(Path.home() / ".local/bin/slotline-headroom-proxy")))
-HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.127.255.254")
+SOULSTEADS_ROUTER = Path(os.environ.get("SOULSTEADS_ROUTER_TEST_BINARY", str(ROOT / "target/release/soulsteads-router")))
+HEADROOM = Path(os.environ.get("SOULSTEADS_ROUTER_HEADROOM_PROXY", str(Path.home() / ".local/bin/soulsteads-router-headroom-proxy")))
+HOST = os.environ.get("SOULSTEADS_ROUTER_TEST_HOST", "100.127.255.254")
 PORT = 4013
-KEY = "slotline-headroom-failure-fixture-1234567890"
+KEY = "soulsteads-router-headroom-failure-fixture-1234567890"
 
 
 def fetch(path, body=None):
@@ -42,7 +42,7 @@ def wait_serving():
         except (OSError, urllib.error.URLError):
             pass
         time.sleep(0.1)
-    raise AssertionError("isolated Slotline routes did not become serving")
+    raise AssertionError("isolated Soulsteads Router routes did not become serving")
 
 
 def chat(model, content, stream=False):
@@ -50,12 +50,12 @@ def chat(model, content, stream=False):
 
 
 def check_case(case, config):
-    process = subprocess.Popen([str(SLOTLINE), str(config)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    process = subprocess.Popen([str(SOULSTEADS_ROUTER), str(config)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         before = wait_serving()
         initial = before["adapter-28"]["completed_total"]
         _, metrics = fetch("/metrics")
-        errors_before = int(next(line.split()[-1] for line in metrics.decode().splitlines() if line.startswith("slotline_upstream_errors_total ")))
+        errors_before = int(next(line.split()[-1] for line in metrics.decode().splitlines() if line.startswith("soulsteads_router_upstream_errors_total ")))
         request = urllib.request.Request(
             f"http://{HOST}:{PORT}/v1/chat/completions",
             data=json.dumps(chat("headroom-test", case, True)).encode(),
@@ -85,7 +85,7 @@ def check_case(case, config):
         assert physical["state"] == "serving" and physical["active"] == 0, physical
         assert adapter["completed_total"] == initial, adapter
         _, metrics = fetch("/metrics")
-        errors_after = int(next(line.split()[-1] for line in metrics.decode().splitlines() if line.startswith("slotline_upstream_errors_total ")))
+        errors_after = int(next(line.split()[-1] for line in metrics.decode().splitlines() if line.startswith("soulsteads_router_upstream_errors_total ")))
         assert errors_after == errors_before + 1, (errors_before, errors_after)
         assert fetch("/v1/chat/completions", chat("direct-test", "rotate"))[0] == 200
         return adapter["attempts_total"]
@@ -136,7 +136,7 @@ aliases:
   headroom-test: {{context_limit: 262144, capabilities: [text], routes: [{{route: adapter-28, priority: 1}}]}}
   direct-test: {{context_limit: 262144, capabilities: [text], routes: [{{route: physical-26, priority: 1}}]}}
 """)
-            assert subprocess.run([str(SLOTLINE), "--check-config", str(config)], capture_output=True).returncode == 0
+            assert subprocess.run([str(SOULSTEADS_ROUTER), "--check-config", str(config)], capture_output=True).returncode == 0
             results = {case: check_case(case, config) for case in ("truncated", "timeout_stream")}
             print(json.dumps({"result": "pass", "sidecar": "real", "cases": results}, sort_keys=True))
     finally:

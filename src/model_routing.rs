@@ -337,7 +337,7 @@ pub(crate) fn finish_response(
     let names: Vec<_> = response
         .headers()
         .keys()
-        .filter(|name| name.as_str().starts_with("x-slotline-routing-"))
+        .filter(|name| name.as_str().starts_with("x-soulsteads-router-routing-"))
         .cloned()
         .collect();
     for name in names {
@@ -350,21 +350,27 @@ pub(crate) fn finish_response(
                 HeaderValue::from_str(value).expect("bounded derived routing header"),
             );
         };
-        insert("x-slotline-routing-policy-sha256", &selection.hash);
-        insert("x-slotline-routing-config-sha256", &runtime.policy_digest);
+        insert("x-soulsteads-router-routing-policy-sha256", &selection.hash);
         insert(
-            "x-slotline-routing-generation",
+            "x-soulsteads-router-routing-config-sha256",
+            &runtime.policy_digest,
+        );
+        insert(
+            "x-soulsteads-router-routing-generation",
             &runtime.policy_generation.to_string(),
         );
-        insert("x-slotline-routing-mode", selection.mode.name());
-        insert("x-slotline-routing-reason", selection.reason);
+        insert("x-soulsteads-router-routing-mode", selection.mode.name());
+        insert("x-soulsteads-router-routing-reason", selection.reason);
         if let Some(version) = &selection.version {
-            insert("x-slotline-routing-version", version);
+            insert("x-soulsteads-router-routing-version", version);
         }
         for (name, value) in [
-            ("x-slotline-routing-rule-sha256", selection.rule.as_ref()),
             (
-                "x-slotline-routing-advisory-sha256",
+                "x-soulsteads-router-routing-rule-sha256",
+                selection.rule.as_ref(),
+            ),
+            (
+                "x-soulsteads-router-routing-advisory-sha256",
                 selection.advisory.as_ref(),
             ),
         ] {
@@ -409,10 +415,10 @@ mod provenance_tests {
         let upstream = || {
             let mut response = Response::new(Body::empty());
             for name in [
-                "x-slotline-routing-mode",
-                "x-slotline-routing-policy-sha256",
-                "x-slotline-routing-unknown",
-                "x-slotline-routing-advisory-sha256",
+                "x-soulsteads-router-routing-mode",
+                "x-soulsteads-router-routing-policy-sha256",
+                "x-soulsteads-router-routing-unknown",
+                "x-soulsteads-router-routing-advisory-sha256",
             ] {
                 response
                     .headers_mut()
@@ -421,29 +427,32 @@ mod provenance_tests {
             response
         };
         let response = finish_response(&runtime, Some(&selection), upstream());
-        assert_eq!(response.headers()["x-slotline-routing-mode"], "active");
         assert_eq!(
-            response.headers()["x-slotline-routing-config-sha256"],
+            response.headers()["x-soulsteads-router-routing-mode"],
+            "active"
+        );
+        assert_eq!(
+            response.headers()["x-soulsteads-router-routing-config-sha256"],
             runtime.policy_digest
         );
         assert_eq!(
-            response.headers()["x-slotline-routing-generation"],
+            response.headers()["x-soulsteads-router-routing-generation"],
             runtime.policy_generation.to_string()
         );
         assert_eq!(
-            response.headers()["x-slotline-routing-rule-sha256"].len(),
+            response.headers()["x-soulsteads-router-routing-rule-sha256"].len(),
             64
         );
         assert!(
             response
                 .headers()
-                .get("x-slotline-routing-advisory-sha256")
+                .get("x-soulsteads-router-routing-advisory-sha256")
                 .is_none()
         );
         assert!(
             response
                 .headers()
-                .get("x-slotline-routing-unknown")
+                .get("x-soulsteads-router-routing-unknown")
                 .is_none()
         );
         for value in response.headers().values() {
@@ -455,7 +464,7 @@ mod provenance_tests {
             !response
                 .headers()
                 .keys()
-                .any(|name| name.as_str().starts_with("x-slotline-routing-"))
+                .any(|name| name.as_str().starts_with("x-soulsteads-router-routing-"))
         );
     }
 }

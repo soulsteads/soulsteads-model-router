@@ -3,6 +3,6 @@ __pycache__/
 /receipts
 *.key
 *.sqlite3*
-/config/slotline.local.yaml
+/config/soulsteads-router.local.yaml
 /.env
 /.serena/

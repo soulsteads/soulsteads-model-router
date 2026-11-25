@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const FIFO_CHILD_PATH_ENV: &str = "SLOTLINE_ADAPTIVE_FIFO_CHILD_PATH";
+const FIFO_CHILD_PATH_ENV: &str = "SOULSTEADS_ROUTER_ADAPTIVE_FIFO_CHILD_PATH";
 static FIFO_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 fn outcome_record(case_id: &str, target_alias: &str, outcome: &str) -> Value {
@@ -64,7 +64,7 @@ fn baseline_settings() -> Value {
 
 fn test_fifo_path() -> PathBuf {
     std::env::temp_dir().join(format!(
-        "slotline-adaptive-fifo-{}-{}",
+        "soulsteads-router-adaptive-fifo-{}-{}",
         std::process::id(),
         FIFO_SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ))

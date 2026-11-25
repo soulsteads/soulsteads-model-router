@@ -20,13 +20,13 @@ supply the limits that managed routing would otherwise enforce.
 - Disabled HTTP redirects and environment proxies.
 
 A request must be a JSON object with an authorized `model` and use a supported
-inference endpoint. Slotline rewrites that model to the route's backend model.
+inference endpoint. Soulsteads Router rewrites that model to the route's backend model.
 This is an authenticated model gateway, not an arbitrary URL tunnel or a
 byte-for-byte upload stream.
 
 ## What is bypassed
 
-For opted-in inference, Slotline does **not** enforce:
+For opted-in inference, Soulsteads Router does **not** enforce:
 
 - body/context/capability/schema limits;
 - rate limits, workload concurrency, or physical admission slots;
@@ -34,7 +34,7 @@ For opted-in inference, Slotline does **not** enforce:
 - request/connect/read deadlines;
 - retries, fallback, or response validation.
 
-Backend and caller limits still apply. Slotline returns upstream status and
+Backend and caller limits still apply. Soulsteads Router returns upstream status and
 streams response bytes without parsing or rewriting model fields. An upstream
 HTTP success is not validated model completion.
 

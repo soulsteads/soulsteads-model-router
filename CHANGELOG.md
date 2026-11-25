@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Finish the rename to `soulsteads-router` across the package, configuration
+  paths, environment variables, affinity and routing headers, and metrics.
+  See [the upgrade checklist](MIGRATION.md#upgrade-the-router-name) before
+  switching an existing installation.
+
 ## 0.3.0
 
 Changes since [`v0.1.0`](https://github.com/soulsteads/soulsteads-model-router/releases/tag/v0.1.0).
@@ -8,9 +15,9 @@ supersedes that draft.
 
 ### Highlights
 
-- Rename the shipped production executable from `slotline` to
-  `soulsteads-router`, while retaining the `slotline` crate/package name,
-  configuration directory and environment-variable namespace.
+- Ship the production executable under the new name `soulsteads-router`.
+  This release did not rename the crate, configuration directory or
+  environment-variable namespace.
 - Add a no-clobber `service install` command for user and system units. It
   renders literal-safe absolute executable and configuration paths, requires an
   explicit non-root `--run-as` account for system scope, and never enables or

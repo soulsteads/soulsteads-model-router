@@ -90,7 +90,7 @@ async fn audit_deadline_after_selection_records_no_send_or_retry() {
         .audit_metrics
         .render()
         .lines()
-        .filter(|line| line.starts_with("slotline_audit_attempt_milliseconds_count{"))
+        .filter(|line| line.starts_with("soulsteads_router_audit_attempt_milliseconds_count{"))
     {
         assert!(line.ends_with(" 0"), "unexpected attempt sample: {line}");
     }
@@ -262,10 +262,10 @@ async fn audit_metrics_bound_labels_and_separate_backend_delivery_samples() {
     assert!(metrics.contains("route=\"unknown\""));
     assert!(metrics.contains("outcome=\"complete\"} 1"));
     assert!(metrics.contains("outcome=\"cancelled\"} 1"));
-    assert!(metrics.contains("slotline_audit_delivery_completed_total{route=\"unknown\",class=\"unknown\",endpoint=\"chat\"} 0"));
-    assert!(metrics.contains("slotline_audit_usage_total_tokens_samples_total{route=\"unknown\",class=\"unknown\",endpoint=\"chat\"} 1"));
-    assert!(metrics.contains("slotline_audit_first_output_milliseconds_count{route=\"unknown\",class=\"unknown\",endpoint=\"chat\"} 1"));
-    assert!(metrics.contains("slotline_audit_duration_milliseconds_bucket{route=\"unknown\",class=\"unknown\",endpoint=\"chat\",le=\"+Inf\"} 1"));
+    assert!(metrics.contains("soulsteads_router_audit_delivery_completed_total{route=\"unknown\",class=\"unknown\",endpoint=\"chat\"} 0"));
+    assert!(metrics.contains("soulsteads_router_audit_usage_total_tokens_samples_total{route=\"unknown\",class=\"unknown\",endpoint=\"chat\"} 1"));
+    assert!(metrics.contains("soulsteads_router_audit_first_output_milliseconds_count{route=\"unknown\",class=\"unknown\",endpoint=\"chat\"} 1"));
+    assert!(metrics.contains("soulsteads_router_audit_duration_milliseconds_bucket{route=\"unknown\",class=\"unknown\",endpoint=\"chat\",le=\"+Inf\"} 1"));
 }
 
 #[tokio::test]

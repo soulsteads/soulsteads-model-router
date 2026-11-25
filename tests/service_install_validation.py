@@ -35,7 +35,7 @@ def main() -> None:
         root = Path(temporary)
         xdg = root / "xdg config $percent%"
         env = dict(os.environ, HOME=str(root / "home"), XDG_CONFIG_HOME=str(xdg))
-        expected_config = xdg / "slotline" / "config.yaml"
+        expected_config = xdg / "soulsteads-router" / "config.yaml"
 
         user_preview = invoke(binary, env, "--user", "--dry-run")
         if user_preview.returncode:

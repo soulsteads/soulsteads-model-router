@@ -485,12 +485,12 @@ fn checked_add(left: u64, right: u64) -> Result<u64, AdaptiveError> {
 pub fn run_cli(args: &[String]) -> Result<(), AdaptiveError> {
     let [command, dataset] = args else {
         return Err(AdaptiveError(
-            "usage: slotline routing evaluate DATASET.json",
+            "usage: soulsteads-router routing evaluate DATASET.json",
         ));
     };
     if command != "evaluate" {
         return Err(AdaptiveError(
-            "usage: slotline routing evaluate DATASET.json",
+            "usage: soulsteads-router routing evaluate DATASET.json",
         ));
     }
     let report = evaluate_file(Path::new(dataset))?;

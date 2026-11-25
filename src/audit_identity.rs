@@ -2,7 +2,7 @@ use crate::config::{Config, CopilotEndpoint, Endpoint, MatcherSource, RouteKind}
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-pub(crate) const BUILD: &str = env!("SLOTLINE_SOURCE_SHA256");
+pub(crate) const BUILD: &str = env!("SOULSTEADS_ROUTER_SOURCE_SHA256");
 pub(crate) fn routing_projection(policy: &crate::config::RoutingPolicy) -> Value {
     let rules: Vec<_> = policy.rules.iter().map(|rule| json!({"id":rule.id,"target":rule.target,"when":{"user_text":rule.predicate.user_text,"credential_classes":rule.predicate.credential_classes,"endpoints":rule.predicate.endpoints.iter().map(|endpoint| match endpoint {crate::config::RoutingEndpoint::Chat=>"chat",crate::config::RoutingEndpoint::Responses=>"responses"}).collect::<Vec<_>>(),"stream":rule.predicate.stream,"tools":rule.predicate.tools,"image":rule.predicate.image,"min_input_bytes":rule.predicate.min_input_bytes,"max_input_bytes":rule.predicate.max_input_bytes}})).collect();
     json!({"mode":policy.mode,"version":policy.version,"rules":rules,"decision_model":policy.decision_model,"decision_targets":policy.decision_targets,"decision_timeout_seconds":policy.decision_timeout_seconds,"decision_prompt_sha256":format!("{:x}", Sha256::digest(policy.decision_prompt.as_bytes())),"default_target":policy.default_target})
@@ -50,7 +50,7 @@ pub(crate) fn routing_status(config: &Config) -> Value {
     Value::Object(policies)
 }
 pub(crate) fn status(runtime: &crate::Runtime) -> Value {
-    json!({"build_source_sha256":BUILD,"build_source_revision":env!("SLOTLINE_SOURCE_REVISION"),"build_source_state":env!("SLOTLINE_SOURCE_STATE"),"policy_sha256":runtime.policy_digest,"policy_generation":runtime.policy_generation,"routing_policies":routing_status(&runtime.policy.config),"sink":crate::audit_sink::COUNTERS.snapshot(),"metrics":runtime.audit_metrics.snapshot()})
+    json!({"build_source_sha256":BUILD,"build_source_revision":env!("SOULSTEADS_ROUTER_SOURCE_REVISION"),"build_source_state":env!("SOULSTEADS_ROUTER_SOURCE_STATE"),"policy_sha256":runtime.policy_digest,"policy_generation":runtime.policy_generation,"routing_policies":routing_status(&runtime.policy.config),"sink":crate::audit_sink::COUNTERS.snapshot(),"metrics":runtime.audit_metrics.snapshot()})
 }
 
 #[cfg(test)]

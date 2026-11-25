@@ -15,10 +15,10 @@ model server, migrate an existing client, or replace another gateway.
 - Python 3 for the configuration preparation and client request examples.
 
 The minimal example uses `qwen38flash` at `http://127.0.0.1:8000/v1`.
-Change both values to match your server. Do not point Slotline at itself or
+Change both values to match your server. Do not point Soulsteads Router at itself or
 another public provider gateway. Upstream URLs use literal private or loopback
 IPv4 addresses, not DNS names. `/v1/models` discovery alone does not prove a
-server can handle your workload; Slotline also runs serving probes.
+server can handle your workload; Soulsteads Router also runs serving probes.
 
 ## 1. Build
 
@@ -30,19 +30,19 @@ cargo test --locked
 ```
 
 The executable is `target/release/soulsteads-router`. No tokenizer download is needed
-for the minimal text example; without a pinned tokenizer Slotline uses a
+for the minimal text example; without a pinned tokenizer Soulsteads Router uses a
 conservative context estimate.
 
 ## 2. Prepare a private policy and credential
 
-Set `SLOTLINE_BIND` to an address actually assigned to this machine. The address
+Set `SOULSTEADS_ROUTER_BIND` to an address actually assigned to this machine. The address
 below is illustrative; do not copy it unchanged unless it is yours.
 
 ```sh
-export SLOTLINE_BIND=100.127.255.254
+export SOULSTEADS_ROUTER_BIND=100.127.255.254
 ```
 
-This script creates `~/.config/slotline/config.yaml` and `operator.key` by default,
+This script creates `~/.config/soulsteads-router/config.yaml` and `operator.key` by default,
 or uses `XDG_CONFIG_HOME`. It refuses to overwrite either file. It never prints
 the generated key. Use a dedicated private directory; do not commit its contents.
 
@@ -53,11 +53,11 @@ import os
 from pathlib import Path
 import secrets
 
-address = ipaddress.IPv4Address(os.environ['SLOTLINE_BIND'])
+address = ipaddress.IPv4Address(os.environ['SOULSTEADS_ROUTER_BIND'])
 if address not in ipaddress.IPv4Network('100.64.0.0/10'):
-    raise SystemExit('SLOTLINE_BIND must be your assigned Tailnet IPv4 address')
+    raise SystemExit('SOULSTEADS_ROUTER_BIND must be your assigned Tailnet IPv4 address')
 os.umask(0o077)
-directory = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'slotline'
+directory = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / '.config')) / 'soulsteads-router'
 directory.mkdir(parents=True, exist_ok=True)
 if directory.stat().st_mode & 0o077:
     raise SystemExit('Use a private configuration directory (mode 0700)')
@@ -67,7 +67,7 @@ if key.exists() or policy.exists():
     raise SystemExit('Existing files found; choose a new private directory or edit manually')
 with key.open('x') as output:
     output.write(secrets.token_urlsafe(32) + '\n')
-text = Path('config/slotline.example.yaml').read_text()
+text = Path('config/soulsteads-router.example.yaml').read_text()
 text = text.replace('bind: 100.127.255.254', f'bind: {address}')
 # JSON-quoted strings are valid YAML and preserve spaces/quotes in the path.
 import json
@@ -99,35 +99,35 @@ rotation/revocation acknowledgments require that store mode.
 ## 3. Validate and start
 
 ```sh
-CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/slotline/config.yaml"
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/soulsteads-router/config.yaml"
 target/release/soulsteads-router --check-config "$CONFIG"
 target/release/soulsteads-router "$CONFIG"
 ```
 
-Expected validation output: `slotline configuration valid`. Validation checks
+Expected validation output: `soulsteads-router configuration valid`. Validation checks
 policy structure and credential files; it is not a successful inference test.
-The foreground process should log `slotline listening`. Wait for backend health
+The foreground process should log `soulsteads-router listening`. Wait for backend health
 and serving probes to qualify the route before testing inference. Stop with
 Ctrl-C. If no route becomes eligible, inspect its health before sending client traffic.
 
 ## 4. Check from another terminal
 
-Set the same `SLOTLINE_BIND` in this terminal. This request reads the credential
+Set the same `SOULSTEADS_ROUTER_BIND` in this terminal. This request reads the credential
 from disk without putting it in process command-line arguments or printing it.
 Do not enable shell tracing or paste the credential file into chat.
 
 ```sh
-CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/slotline"
-export SLOTLINE_BASE_URL="http://${SLOTLINE_BIND}:4011"
-export SLOTLINE_KEY_FILE="$CONFIG_DIR/operator.key"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/soulsteads-router"
+export SOULSTEADS_ROUTER_BASE_URL="http://${SOULSTEADS_ROUTER_BIND}:4011"
+export SOULSTEADS_ROUTER_KEY_FILE="$CONFIG_DIR/operator.key"
 python3 - <<'PY'
 import json
 import os
 from pathlib import Path
 import urllib.request
 
-base = os.environ['SLOTLINE_BASE_URL']
-key = Path(os.environ['SLOTLINE_KEY_FILE']).read_text().strip()
+base = os.environ['SOULSTEADS_ROUTER_BASE_URL']
+key = Path(os.environ['SOULSTEADS_ROUTER_KEY_FILE']).read_text().strip()
 for endpoint, body in [('/v1/models', None), ('/v1/chat/completions', {
     'model': 'local-chat',
     'messages': [{'role': 'user', 'content': 'Reply with a short greeting.'}],
@@ -153,7 +153,7 @@ if the completion returns `503`.
 
 Only do this after the foreground checks pass. The installer uses the current
 absolute executable and the XDG policy location
-`$XDG_CONFIG_HOME/slotline/config.yaml` (or `~/.config/slotline/config.yaml`).
+`$XDG_CONFIG_HOME/soulsteads-router/config.yaml` (or `~/.config/soulsteads-router/config.yaml`).
 It never parses the policy, enables, starts, or restarts a unit.
 
 For a user service, first copy the reviewed executable somewhere stable on your
@@ -183,7 +183,7 @@ systemctl --user status soulsteads-router.service
 For a system service, run the installer as an administrator and select an
 existing non-root account explicitly. It writes only the fixed
 `/etc/systemd/system/soulsteads-router.service` path; there is no directory
-override. It derives that account's absolute `~/.config/slotline/config.yaml`
+override. It derives that account's absolute `~/.config/soulsteads-router/config.yaml`
 location, runs the service as that account, uses the system-service filesystem
 sandbox directives, and installs to `multi-user.target`:
 

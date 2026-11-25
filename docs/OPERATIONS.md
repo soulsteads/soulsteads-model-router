@@ -6,7 +6,7 @@ Set `CONFIG` to the policy used by the **running** listener, not an example or a
 old deployment copy.
 
 ```sh
-CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/slotline/config.yaml"
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/soulsteads-router/config.yaml"
 ```
 
 ## Inspect live status
@@ -22,8 +22,8 @@ access that socket and load the policy. File-backed policies require their
 policy directory to be private and writable. Verifier-store policies put the
 socket in the private store directory.
 
-Without an explicit policy path, `soulsteads-router status` uses `SLOTLINE_CONFIG`, then
-`$XDG_CONFIG_HOME/slotline/config.yaml` or `~/.config/slotline/config.yaml`.
+Without an explicit policy path, `soulsteads-router status` uses `SOULSTEADS_ROUTER_CONFIG`, then
+`$XDG_CONFIG_HOME/soulsteads-router/config.yaml` or `~/.config/soulsteads-router/config.yaml`.
 Remote clients can use operator-authenticated HTTP `/status` instead. See the
 [setup request example](SETUP.md#4-check-from-another-terminal) for reading a key
 from disk without putting its value into command-line arguments.
@@ -35,7 +35,7 @@ addresses or identifying credential/route names.
 
 ## Interpret health and traffic
 
-- A backend advertising a model is not yet a serving backend. Slotline also
+- A backend advertising a model is not yet a serving backend. Soulsteads Router also
   checks readiness and successful serving qualification. Capability declarations
   still require your own exact-backend testing.
 - Only eligible managed routes receive new work. Busy or unhealthy backends can
@@ -55,7 +55,7 @@ automatically discover and requalify every modality after a backend upgrade.
 
 ## Backend telemetry
 
-Enabled direct local routes are sampled alongside the health poll. Slotline reads
+Enabled direct local routes are sampled alongside the health poll. Soulsteads Router reads
 backend `/metrics` with a five-second timeout and a 1 MiB response cap; adapters
 are not scraped again. These measurements are **display-only**, not routing
 weights, health evidence, qualification, or additional capacity.

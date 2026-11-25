@@ -3,21 +3,21 @@
 ## Preferred authentication: read-only reuse of Codex CLI login
 
 With Codex enabled, `auth_source: auto` is the default. If legacy `account_file`
-is absent, Slotline reads the current file-backed Codex CLI ChatGPT session from
+is absent, Soulsteads Router reads the current file-backed Codex CLI ChatGPT session from
 `$CODEX_HOME/auth.json`, or `$HOME/.codex/auth.json` when `CODEX_HOME` is unset.
 Set `cli_auth_file` to override that location. If `account_file` is present,
-auto preserves the existing Slotline-managed source; source selection never
+auto preserves the existing Soulsteads Router-managed source; source selection never
 falls back based on file availability. Use `auth_source: codex_cli` or
 `auth_source: managed` to state the source explicitly. Ambiguous combinations
 are rejected.
 
 The CLI source accepts only `auth_mode: chatgpt` with a usable access token.
-Slotline reads the file on each request, validates a bounded descriptor
+Soulsteads Router reads the file on each request, validates a bounded descriptor
 snapshot, and never copies, refreshes, rotates, deletes, locks, or otherwise
 writes the system auth file. The Codex CLI remains responsible for token
 refresh. If the access token expires, status reports it unavailable and directs
 the operator to run `codex login` locally. Keyring-only CLI auth is not read by
-this file-backed source; no keyring dependency is added. Native Slotline OAuth
+this file-backed source; no keyring dependency is added. Native Soulsteads Router OAuth
 login is not started for this source.
 
 For a safe readiness probe, configure `enabled: true` and
@@ -32,7 +32,7 @@ with explicit provider, credential and model authority.
 
 ## Configuration and default denial
 
-Add this block to a normal Slotline configuration. Its alias must not also
+Add this block to a normal Soulsteads Router configuration. Its alias must not also
 appear in `aliases`; `codex` is reserved and must not be a local route name.
 Local routes remain unchanged. Provider authority changes require a restart,
 not policy reload.
@@ -47,16 +47,16 @@ codex:
   # cli_auth_file: /absolute/path/to/auth.json
 ```
 
-### Optional Slotline-managed OAuth qualification (compatibility path)
+### Optional Soulsteads Router-managed OAuth qualification (compatibility path)
 
-Existing device authorization, token refresh, and Slotline-owned private account
+Existing device authorization, token refresh, and Soulsteads Router-owned private account
 storage remain available for explicit qualification. They are separate from the
 preferred CLI source and should be selected explicitly:
 
 ```yaml
 codex:
   auth_source: managed
-  account_file: /var/lib/slotline-codex/account.json
+  account_file: /var/lib/soulsteads-router-codex/account.json
 ```
 
 The historical managed-login and refresh evidence below remains applicable only
@@ -159,7 +159,7 @@ a stale in-flight failure cannot invalidate a newer refreshed token.
 
 ## Metrics
 
-Observed native inference HTTP, transport and protocol failures increment the existing `slotline_upstream_errors_total` counter once per request. This includes body errors observed while relaying an SSE response after its 200 headers. Successful requests, client cancellation, policy/input refusals and missing-account preflight failures do not increment this inference counter. The existing operator-only metrics authorization remains unchanged.
+Observed native inference HTTP, transport and protocol failures increment the existing `soulsteads_router_upstream_errors_total` counter once per request. This includes body errors observed while relaying an SSE response after its 200 headers. Successful requests, client cancellation, policy/input refusals and missing-account preflight failures do not increment this inference counter. The existing operator-only metrics authorization remains unchanged.
 
 ## Network and verification boundary
 
@@ -185,4 +185,4 @@ LiteLLM ChatGPT provider at immutable revision
 `litellm/llms/chatgpt/{authenticator.py,common_utils.py,responses/transformation.py}`.
 These files are MIT-licensed; the complete notice is retained in
 `third_party/LiteLLM-LICENSE.txt`. No enterprise code or runtime is included.
-The Slotline implementation is otherwise governed by the repository license.
+The Soulsteads Router implementation is otherwise governed by the repository license.

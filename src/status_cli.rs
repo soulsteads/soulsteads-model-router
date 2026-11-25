@@ -44,7 +44,7 @@ pub(crate) fn render(value: &Value) -> Result<String, String> {
         .and_then(Value::as_array)
         .ok_or("invalid status response: missing leases")?;
     let mut out = String::new();
-    writeln!(out, "Slotline — live status").unwrap();
+    writeln!(out, "Soulsteads Router — live status").unwrap();
     writeln!(
         out,
         "Requests: {}  Rejected: {}  Upstream errors: {}",
@@ -224,13 +224,14 @@ pub(crate) fn render(value: &Value) -> Result<String, String> {
 }
 
 pub(crate) fn default_policy_path() -> PathBuf {
-    if let Some(path) = std::env::var_os("SLOTLINE_CONFIG") {
+    if let Some(path) = std::env::var_os("SOULSTEADS_ROUTER_CONFIG") {
         return PathBuf::from(path);
     }
     if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME") {
-        return PathBuf::from(dir).join("slotline/config.yaml");
+        return PathBuf::from(dir).join("soulsteads-router/config.yaml");
     }
-    PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".config/slotline/config.yaml")
+    PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+        .join(".config/soulsteads-router/config.yaml")
 }
 
 pub(crate) async fn run(

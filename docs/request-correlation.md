@@ -1,6 +1,6 @@
 # Request correlation
 
-Slotline generates a fresh opaque 128-bit ID for each incoming HTTP request. It returns the ID in `X-Request-ID`, replacing any caller-supplied value so arbitrary caller metadata does not become log identity. IDs are correlation metadata, not credentials.
+Soulsteads Router generates a fresh opaque 128-bit ID for each incoming HTTP request. It returns the ID in `X-Request-ID`, replacing any caller-supplied value so arbitrary caller metadata does not become log identity. IDs are correlation metadata, not credentials.
 
 Structured JSON events expose the ID in `span.request_id` (and the request entry of `spans`). Route selection, skips, upstream failures, retries, and successful routing inside the handler share the request span. Body polling is instrumented too, so stream errors after response headers retain the original ID.
 
@@ -12,11 +12,11 @@ Structured JSON events expose the ID in `span.request_id` (and the request entry
 - `request body completed`: response body exhausted without a body error. An HTTP error body can complete too; inspect its status and preceding events.
 - `request body cancelled` and `request handler cancelled`: terminal cancellation observations, emitted when the body or handler is dropped before normal completion. Cancellation can happen before response, before the first body poll, or mid-stream.
 
-Background health/qualification probes are not incoming HTTP requests and do not receive these IDs. Existing route/stage fields identify probe failures. IDs are local correlation metadata, not distributed tracing; Slotline does not currently propagate them to upstream providers. Client cancellation can drop a response body without a completion event. Request/body completion describes server-side polling and does not prove remote receipt or display.
+Background health/qualification probes are not incoming HTTP requests and do not receive these IDs. Existing route/stage fields identify probe failures. IDs are local correlation metadata, not distributed tracing; Soulsteads Router does not currently propagate them to upstream providers. Client cancellation can drop a response body without a completion event. Request/body completion describes server-side polling and does not prove remote receipt or display.
 
 ## Verify correlation behavior
 
-Build the binary and set `SLOTLINE_TEST_HOST` to an address assigned to your
+Build the binary and set `SOULSTEADS_ROUTER_TEST_HOST` to an address assigned to your
 test host, as described in [development checks](DEVELOPMENT.md#real-http-fixture-processes).
 Then run the fixture from the repository root:
 

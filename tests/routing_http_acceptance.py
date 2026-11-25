@@ -1,6 +1,6 @@
 """Compiled routing HTTP acceptance on an explicitly assigned test listener.
 
-Requires SLOTLINE_TEST_BINARY, SLOTLINE_TEST_HOST and private TMPDIR. Gateway and
+Requires SOULSTEADS_ROUTER_TEST_BINARY, SOULSTEADS_ROUTER_TEST_HOST and private TMPDIR. Gateway and
 backend are always terminated/joined. --manifest records generated named checks.
 """
 import argparse
@@ -40,9 +40,9 @@ class Backend(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("x-slotline-routing-mode", "spoofed")
-        self.send_header("x-slotline-routing-policy-sha256", "spoofed")
-        self.send_header("x-slotline-routing-advisory-sha256", "spoofed")
+        self.send_header("x-soulsteads-router-routing-mode", "spoofed")
+        self.send_header("x-soulsteads-router-routing-policy-sha256", "spoofed")
+        self.send_header("x-soulsteads-router-routing-advisory-sha256", "spoofed")
         self.end_headers()
         self.wfile.write(data)
 
@@ -69,8 +69,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--manifest", required=True)
     args = parser.parse_args()
-    binary = str(Path(os.environ["SLOTLINE_TEST_BINARY"]).resolve())
-    host = os.environ.get("SLOTLINE_TEST_HOST")
+    binary = str(Path(os.environ["SOULSTEADS_ROUTER_TEST_BINARY"]).resolve())
+    host = os.environ.get("SOULSTEADS_ROUTER_TEST_HOST")
     checks = []
     process = server = thread = None
     directory = tempfile.mkdtemp(prefix="routing-http-")
@@ -79,7 +79,7 @@ def main():
     log = None
     try:
         if not host:
-            raise FixtureBlocked("SLOTLINE_TEST_HOST is required")
+            raise FixtureBlocked("SOULSTEADS_ROUTER_TEST_HOST is required")
         server = ThreadingHTTPServer(("127.0.0.1", 0), Backend)
         thread = Thread(target=server.serve_forever)
         thread.start()
@@ -185,10 +185,10 @@ def main():
             status, headers, body = request(path, raw)
             headers = {name.lower(): value for name, value in headers.items()}
             check(endpoint + " text selection", status == 200 and json.loads(body)["model"] == "small")
-            check(endpoint + " provenance", headers["x-slotline-routing-mode"] == "active"
-                  and headers["x-slotline-routing-version"] == "synthetic-v1"
-                  and headers["x-slotline-routing-rule-sha256"] == hashlib.sha256("Unicode λ text rule".encode()).hexdigest()
-                  and headers.get("x-slotline-routing-advisory-sha256") is None)
+            check(endpoint + " provenance", headers["x-soulsteads-router-routing-mode"] == "active"
+                  and headers["x-soulsteads-router-routing-version"] == "synthetic-v1"
+                  and headers["x-soulsteads-router-routing-rule-sha256"] == hashlib.sha256("Unicode λ text rule".encode()).hexdigest()
+                  and headers.get("x-soulsteads-router-routing-advisory-sha256") is None)
             case = {"schema_version": 1, "id": "synthetic-live-" + endpoint, "endpoint": endpoint,
                     "raw_body": raw, "input_bytes": len(raw.encode()), "grants": {"synthetic": True,
                     "credential_class": "batch", "aliases": allowed,
@@ -199,7 +199,7 @@ def main():
             explanation = json.loads(offline.stdout)
             check(endpoint + " shared offline/live plan", offline.returncode == 0
                   and explanation["prediction"]["target"] == "small"
-                  and explanation["policy_sha256"] == headers["x-slotline-routing-policy-sha256"])
+                  and explanation["policy_sha256"] == headers["x-soulsteads-router-routing-policy-sha256"])
         raw = json.dumps({"model": "byte-policy", "messages": [{"role": "user", "content": "hi"}]})
         for size, target in [(100, "small"), (101, "large")]:
             status, _, body = request("/v1/chat/completions", raw + " " * (size - len(raw)))
@@ -223,7 +223,7 @@ def main():
         with Backend.lock:
             sent = Backend.requests[before:]
         check("shadow one baseline no judge", status == 200 and len(sent) == 1 and sent[0]["model"] == "synthetic-small")
-        check("denied advisory hidden", "x-slotline-routing-advisory-sha256" not in headers)
+        check("denied advisory hidden", "x-soulsteads-router-routing-advisory-sha256" not in headers)
         status, _, _ = request("/v1/chat/completions", {"model": "shadow", "messages": [{"role": "user", "content": "hi"}]}, SINGLE_KEY)
         check("shadow single rate debit", status == 429)
         with Backend.lock:
@@ -259,7 +259,7 @@ def main():
             payload = {"model": "small", **({"input": "hi"} if endpoint == "responses" else {"messages": [{"role": "user", "content": "hi"}]})}
             status, headers, _ = request("/v1/" + endpoint, payload)
             check("ordinary upstream cannot spoof " + endpoint, status == 200
-                  and not any(name.lower().startswith("x-slotline-routing-") for name in headers))
+                  and not any(name.lower().startswith("x-soulsteads-router-routing-") for name in headers))
     except FixtureBlocked as error:
         checks.append({"name": "assigned listener", "status": "blocked", "reason": str(error)})
     except OSError as error:

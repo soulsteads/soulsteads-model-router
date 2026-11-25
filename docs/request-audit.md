@@ -29,7 +29,7 @@ For model-routing policies, request attempts, retries, backend outcome, and usag
 
 The worker owns stdout I/O. Producers format whole records into a fixed 8 KiB buffer and use a nonblocking `try_send` to a 256-record queue. Oversized records are dropped whole, not intentionally truncated. The queue uses about 2 MiB plus one worker record and transient producer buffers (approximately 16 KiB per concurrently formatting producer). This is a queue bound, **not** a concurrency-independent global allocation cap. Producers do not wait for sink I/O or retry a full queue. A stalled sink drops new records.
 
-Protected operator status exposes identity, group/loss counts, and limits. Protected `/metrics` exposes `slotline_audit_*`:
+Protected operator status exposes identity, group/loss counts, and limits. Protected `/metrics` exposes `soulsteads_router_audit_*`:
 
 - Fixed cumulative histograms for duration, headers, meaningful first output, and attempts, with `_bucket`, `_count`, and `_sum` in milliseconds and an infinity bucket.
 - Final request outcomes, backend outcomes, and independently counted successful body EOF.
@@ -51,7 +51,7 @@ JSONL from standard input by default, or from `--input`:
 ```sh
 journalctl --user -u soulsteads-router.service --since '2 hours ago' -o cat --no-pager \
   | python3 scripts/audit_report.py
-python3 scripts/audit_report.py --input /path/to/slotline.jsonl
+python3 scripts/audit_report.py --input /path/to/soulsteads-router.jsonl
 ```
 
 To filter by terminal-event time, use an inclusive `--since` and/or exclusive `--until`. Timestamps must use strict ISO `T` syntax with a valid timezone offset; `--since` must precede `--until`. Replace the illustrative timestamps below and export a journal range covering your chosen window, including earlier request starts.

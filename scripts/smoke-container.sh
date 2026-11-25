@@ -14,9 +14,9 @@ run --entrypoint sh "$image" -ec 'test "$(id -u)" -eq 10001 && test -w /data'
 {
   printf 'listener_mode: loopback\n'
   sed -e 's/^bind:.*/bind: 127.0.0.1/' \
-    -e 's|/absolute/path/to/operator.key|/data/operator.key|' config/slotline.example.yaml
+    -e 's|/absolute/path/to/operator.key|/data/operator.key|' config/soulsteads-router.example.yaml
 } | run --entrypoint sh -i "$image" -ec '
   umask 077; cat > /data/config.yaml
   head -c 32 /dev/urandom | od -An -tx1 | tr -d " \n" > /data/operator.key
 '
-run "$image" --check-config /data/config.yaml | grep -F 'slotline configuration valid'
+run "$image" --check-config /data/config.yaml | grep -F 'soulsteads-router configuration valid'

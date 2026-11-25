@@ -910,7 +910,7 @@ async fn forward_inner(
         .header("ChatGPT-Account-Id", &account.account_id)
         .header("originator", "codex_cli_rs")
         .header("session_id", session)
-        .header(header::USER_AGENT, "codex_cli_rs/slotline")
+        .header(header::USER_AGENT, "codex_cli_rs/soulsteads-router")
         .header(header::ACCEPT, "text/event-stream")
         .json(&body)
         .send();

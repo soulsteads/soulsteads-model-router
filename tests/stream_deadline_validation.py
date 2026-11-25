@@ -1,14 +1,14 @@
 """Verify class deadlines cover full SSE consumption and release route permits.
 
-Run after cargo build --release --locked. Set SLOTLINE_TEST_HOST to a local
-Tailnet IPv4 and SLOTLINE_TEST_PORT to an unused port when needed.
+Run after cargo build --release --locked. Set SOULSTEADS_ROUTER_TEST_HOST to a local
+Tailnet IPv4 and SOULSTEADS_ROUTER_TEST_PORT to an unused port when needed.
 """
 import json, pathlib, tempfile, subprocess, threading, time, urllib.request, urllib.error, os
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-BIN = os.environ.get('SLOTLINE_TEST_BINARY', str(ROOT / 'target/release/soulsteads-router'))
-HOST = os.environ.get('SLOTLINE_TEST_HOST', '100.127.255.254')
-PORT = int(os.environ.get('SLOTLINE_TEST_PORT', '14013'))
+BIN = os.environ.get('SOULSTEADS_ROUTER_TEST_BINARY', str(ROOT / 'target/release/soulsteads-router'))
+HOST = os.environ.get('SOULSTEADS_ROUTER_TEST_HOST', '100.127.255.254')
+PORT = int(os.environ.get('SOULSTEADS_ROUTER_TEST_PORT', '14013'))
 class Backend(BaseHTTPRequestHandler):
  protocol_version='HTTP/1.1'
  def log_message(self,format,*args): pass
@@ -29,7 +29,7 @@ class Backend(BaseHTTPRequestHandler):
 server=ThreadingHTTPServer(('127.0.0.1',0),Backend);threading.Thread(target=server.serve_forever,daemon=True).start();backend_port=server.server_port
 results=[]
 request_ids=set()
-with tempfile.TemporaryDirectory(prefix='slotline-stream-regression-') as td:
+with tempfile.TemporaryDirectory(prefix='soulsteads-router-stream-regression-') as td:
  root=pathlib.Path(td); key=root/'key'; key.write_text('fixture-test-key-012345678901234567890');key.chmod(0o600)
  for budget in [False,True]:
   cfg={'bind':HOST,'port':PORT,'refresh_seconds':30,'credentials':[{'name':'fixture','key_file':str(key),'aliases':['test'],'class':'long-stream','requests_per_minute':100,'burst':10,'max_in_flight':2}],'routes':[{'name':'fixture','kind':'local','base_url':f'http://127.0.0.1:{backend_port}/v1','model':'fixture','safe_concurrency':1,'context_limit':2000,'adapter_version':'fixture','capabilities':['text'],'streaming':True,'timeout_seconds':1,'enabled':True}],'aliases':{'test':{'context_limit':2000,'capabilities':['text'],'streaming':True,'routes':[{'route':'fixture','priority':10}]}}}

@@ -346,7 +346,7 @@ fn fixture_with_auth_source(
     let account_path = if persist {
         dir.path().join("account.json")
     } else {
-        PathBuf::from("/var/lib/slotline-nonexistent-fixture/account.json")
+        PathBuf::from("/var/lib/soulsteads-router-nonexistent-fixture/account.json")
     };
     let mut value = json!({"bind":"100.127.255.254","port":14022,
         "codex":{"enabled":true,"alias":"cloud-test","model":"gpt-fixture","account_file":account_path,"auth_base_url":base,"responses_url":format!("{base}/backend-api/codex/responses")},
@@ -582,7 +582,7 @@ async fn codex_handlers_responses_and_chat_stream_and_nonstream_are_native_and_p
         assert_eq!(headers[header::AUTHORIZATION], format!("Bearer {ACCESS}"));
         assert_eq!(headers["chatgpt-account-id"], "fixture-account");
         assert_eq!(headers["originator"], "codex_cli_rs");
-        for private in ["cookie", "x-api-key", "x-slotline-session"] {
+        for private in ["cookie", "x-api-key", "x-soulsteads-router-session"] {
             assert!(headers.get(private).is_none());
         }
         let value: Value = serde_json::from_slice(bytes).unwrap();
@@ -1101,7 +1101,7 @@ async fn assert_native_upstream_error_metric(fixture: &Fixture, expected: u64) {
         .await
         .unwrap();
     let text = std::str::from_utf8(&body).unwrap();
-    let line = format!("slotline_upstream_errors_total {expected}");
+    let line = format!("soulsteads_router_upstream_errors_total {expected}");
     assert!(
         text.lines().any(|value| value == line),
         "counter missing from metrics export"

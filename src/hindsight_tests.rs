@@ -20,7 +20,7 @@ fn hindsight_connection_and_server_owned_bank_mapping_parse() {
     assert!(
         hindsight_config(json!({"hindsight":{
             "enabled":true,"endpoint":"http://127.0.0.1:9180",
-            "api_key_env":"SLOTLINE_TEST_HINDSIGHT_KEY","timeout_ms":500,
+            "api_key_env":"SOULSTEADS_ROUTER_TEST_HINDSIGHT_KEY","timeout_ms":500,
             "bindings":{"fixture":{"bank_id":"agent-fixture","allow_retain":false}}
         }}))
         .is_ok()

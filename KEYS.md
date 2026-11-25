@@ -1,6 +1,6 @@
-# Slotline key manager
+# Soulsteads Router key manager
 
-`soulsteads-router keys` is a local administrator CLI. It has no HTTP route. A Slotline
+`soulsteads-router keys` is a local administrator CLI. It has no HTTP route. A Soulsteads Router
 policy can set `key_store: /absolute/path/to/keys.sqlite3` and omit
 `credentials` to authenticate inference requests against an in-memory
 verifier snapshot. File-backed credentials remain supported; choose one mode.
@@ -18,7 +18,7 @@ timestamp, and result.
 # Use an existing private directory; commands below are lifecycle examples,
 # not a sequence to run blindly. The binary must be on PATH.
 umask 077
-STORE="${XDG_CONFIG_HOME:-$HOME/.config}/slotline/keys.sqlite3"
+STORE="${XDG_CONFIG_HOME:-$HOME/.config}/soulsteads-router/keys.sqlite3"
 soulsteads-router keys init "$STORE"
 soulsteads-router keys issue "$STORE" policy.json > client.key
 soulsteads-router keys list "$STORE"

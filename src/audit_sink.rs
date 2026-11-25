@@ -123,7 +123,7 @@ impl Sink {
     ) -> io::Result<Self> {
         let (sender, receiver) = mpsc::sync_channel::<Box<Record>>(QUEUE_RECORDS);
         std::thread::Builder::new()
-            .name("slotline-audit".into())
+            .name("soulsteads-router-audit".into())
             .spawn(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     while let Ok(mut record) = receiver.recv() {
