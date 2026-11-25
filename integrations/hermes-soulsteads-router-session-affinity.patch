@@ -1,19 +1,18 @@
 From a251d7fa7c1d580b4520d35ba8f78af4ed27a408 Mon Sep 17 00:00:00 2001
 From: Soulsteads contributors <contributors@example.invalid>
 Date: Sun, 27 Sep 2026 23:03:39 +0000
-Subject: [PATCH] Add opt-in Slotline conversation affinity header
+Subject: [PATCH] Add opt-in Soulsteads Router conversation affinity header
 
 ---
  agent/transports/chat_completions.py          | 28 +++++++-
  hermes_cli/config.py                          |  8 ++-
  hermes_cli/runtime_provider.py                | 14 +++-
- .../test_slotline_session_affinity.py         | 71 +++++++++++++++++++
+ .../test_soulsteads_router_session_affinity.py         | 71 +++++++++++++++++++
  website/docs/user-guide/configuring-models.md | 13 +++-
  5 files changed, 127 insertions(+), 7 deletions(-)
- create mode 100644 tests/hermes_cli/test_slotline_session_affinity.py
+ create mode 100644 tests/hermes_cli/test_soulsteads_router_session_affinity.py
 
 diff --git a/agent/transports/chat_completions.py b/agent/transports/chat_completions.py
-index f8a191ceec..a3ec3599be 100644
 --- a/agent/transports/chat_completions.py
 +++ b/agent/transports/chat_completions.py
 @@ -9,6 +9,7 @@ which has provider-specific conditionals for max_tokens defaults,
@@ -28,22 +27,22 @@ index f8a191ceec..a3ec3599be 100644
          return str(content or "")
  
  
-+def _add_slotline_session_header(api_kwargs: dict[str, Any], params: dict[str, Any]) -> None:
-+    """Opt-in, bounded routing hint scoped by Slotline to the bearer key.
++def _add_soulsteads_router_session_header(api_kwargs: dict[str, Any], params: dict[str, Any]) -> None:
++    """Opt-in, bounded routing hint scoped by Soulsteads Router to the bearer key.
 +
 +    The cache scope survives Hermes context-compression session rotation. The
 +    raw Hermes identifier stays local; only its domain-separated digest goes
 +    over the wire. This header grants no authorization at the gateway.
 +    """
 +    overrides = params.get("request_overrides") or {}
-+    if overrides.get("slotline_session_affinity") is not True:
++    if overrides.get("soulsteads_router_session_affinity") is not True:
 +        return
 +    scope = params.get("cache_scope_id") or params.get("session_id")
 +    if not isinstance(scope, str) or not scope:
 +        return
-+    digest = hashlib.sha256(b"hermes-slotline-session-v1\0" + scope.encode()).hexdigest()
++    digest = hashlib.sha256(b"hermes-soulsteads-router-session-v1\0" + scope.encode()).hexdigest()
 +    headers = dict(api_kwargs.get("extra_headers") or {})
-+    headers["X-Slotline-Session"] = digest
++    headers["X-Soulsteads-Router-Session"] = digest
 +    api_kwargs["extra_headers"] = headers
 +
 +
@@ -55,7 +54,7 @@ index f8a191ceec..a3ec3599be 100644
          overrides = params.get("request_overrides")
          if overrides:
 -            api_kwargs.update(overrides)
-+            api_kwargs.update({k: v for k, v in overrides.items() if k != "slotline_session_affinity"})
++            api_kwargs.update({k: v for k, v in overrides.items() if k != "soulsteads_router_session_affinity"})
  
          _add_prompt_cache_key(
              api_kwargs,
@@ -63,7 +62,7 @@ index f8a191ceec..a3ec3599be 100644
              cache_scope_id=params.get("cache_scope_id"),
          )
  
-+        _add_slotline_session_header(api_kwargs, params)
++        _add_soulsteads_router_session_header(api_kwargs, params)
 +
          return api_kwargs
  
@@ -72,7 +71,7 @@ index f8a191ceec..a3ec3599be 100644
          overrides = params.get("request_overrides")
          if overrides:
              for k, v in overrides.items():
-+                if k == "slotline_session_affinity":
++                if k == "soulsteads_router_session_affinity":
 +                    continue
                  if k == "extra_body" and isinstance(v, dict):
                      extra_body.update(v)
@@ -81,13 +80,12 @@ index f8a191ceec..a3ec3599be 100644
              cache_scope_id=params.get("cache_scope_id"),
          )
  
-+        _add_slotline_session_header(api_kwargs, params)
++        _add_soulsteads_router_session_header(api_kwargs, params)
 +
          return api_kwargs
  
      def normalize_response(self, response: Any, **kwargs) -> NormalizedResponse:
 diff --git a/hermes_cli/config.py b/hermes_cli/config.py
-index 640179b0b4..715b5eff44 100644
 --- a/hermes_cli/config.py
 +++ b/hermes_cli/config.py
 @@ -1480,7 +1480,7 @@ def _normalize_custom_provider_entry(
@@ -95,7 +93,7 @@ index 640179b0b4..715b5eff44 100644
          "context_length", "rate_limit_delay",
          "request_timeout_seconds", "stale_timeout_seconds",
 -        "discover_models", "extra_body", "extra_headers",
-+        "discover_models", "extra_body", "extra_headers", "slotline_session_affinity",
++        "discover_models", "extra_body", "extra_headers", "soulsteads_router_session_affinity",
          "ssl_ca_cert", "ssl_verify",
      }
      for camel, snake in _CAMEL_ALIASES.items():
@@ -103,8 +101,8 @@ index 640179b0b4..715b5eff44 100644
      if isinstance(extra_body, dict):
          normalized["extra_body"] = dict(extra_body)
  
-+    if isinstance(entry.get("slotline_session_affinity"), bool):
-+        normalized["slotline_session_affinity"] = entry["slotline_session_affinity"]
++    if isinstance(entry.get("soulsteads_router_session_affinity"), bool):
++        normalized["soulsteads_router_session_affinity"] = entry["soulsteads_router_session_affinity"]
 +
      # Per-provider extra HTTP headers (proxies, gateways, custom auth).
      # Values may carry credentials (e.g. CF-Access-Client-Secret) — never
@@ -113,7 +111,7 @@ index 640179b0b4..715b5eff44 100644
          "discover_models",
          "extra_body",
          "extra_headers",
-+        "slotline_session_affinity",
++        "soulsteads_router_session_affinity",
          "ssl_ca_cert",
          "ssl_verify",
      ):
@@ -122,20 +120,19 @@ index 640179b0b4..715b5eff44 100644
  _VALID_CUSTOM_PROVIDER_FIELDS = {
      "name", "base_url", "api_key", "api_mode", "model", "models",
 -    "context_length", "rate_limit_delay", "extra_body",
-+    "context_length", "rate_limit_delay", "extra_body", "slotline_session_affinity",
++    "context_length", "rate_limit_delay", "extra_body", "soulsteads_router_session_affinity",
      "ssl_ca_cert", "ssl_verify",
      # key_env is read at runtime by runtime_provider.py and auxiliary_client.py
      # — include it here so the set accurately describes the supported schema.
 diff --git a/hermes_cli/runtime_provider.py b/hermes_cli/runtime_provider.py
-index beb8f13a78..9400e541e7 100644
 --- a/hermes_cli/runtime_provider.py
 +++ b/hermes_cli/runtime_provider.py
 @@ -831,6 +831,8 @@ def _get_named_custom_provider(requested_provider: str) -> Optional[Dict[str, An
                      api_mode = _parse_api_mode(entry.get("api_mode") or entry.get("transport"))
                      if api_mode:
                          result["api_mode"] = api_mode
-+                    if entry.get("slotline_session_affinity") is True:
-+                        result["slotline_session_affinity"] = True
++                    if entry.get("soulsteads_router_session_affinity") is True:
++                        result["soulsteads_router_session_affinity"] = True
                      _lift_max_output_tokens(entry, result)
                      return result
  
@@ -143,8 +140,8 @@ index beb8f13a78..9400e541e7 100644
          api_mode = _parse_api_mode(entry.get("api_mode"))
          if api_mode:
              result["api_mode"] = api_mode
-+        if entry.get("slotline_session_affinity") is True:
-+            result["slotline_session_affinity"] = True
++        if entry.get("soulsteads_router_session_affinity") is True:
++            result["soulsteads_router_session_affinity"] = True
          model_name = str(entry.get("model", "") or "").strip()
          if model_name:
              result["model"] = model_name
@@ -159,20 +156,19 @@ index beb8f13a78..9400e541e7 100644
 -    return {"extra_body": dict(extra_body)}
 +    if isinstance(extra_body, dict) and extra_body:
 +        overrides["extra_body"] = dict(extra_body)
-+    if (custom_provider.get("slotline_session_affinity") is True
++    if (custom_provider.get("soulsteads_router_session_affinity") is True
 +            and custom_provider.get("api_mode", "chat_completions") == "chat_completions"):
-+        overrides["slotline_session_affinity"] = True
++        overrides["soulsteads_router_session_affinity"] = True
 +    return overrides
  
  
  def _resolve_named_custom_runtime(
-diff --git a/tests/hermes_cli/test_slotline_session_affinity.py b/tests/hermes_cli/test_slotline_session_affinity.py
+diff --git a/tests/hermes_cli/test_soulsteads_router_session_affinity.py b/tests/hermes_cli/test_soulsteads_router_session_affinity.py
 new file mode 100644
-index 0000000000..8f7cf5213b
 --- /dev/null
-+++ b/tests/hermes_cli/test_slotline_session_affinity.py
++++ b/tests/hermes_cli/test_soulsteads_router_session_affinity.py
 @@ -0,0 +1,71 @@
-+"""A configured Slotline provider sends a stable conversation routing hint."""
++"""A configured Soulsteads Router provider sends a stable conversation routing hint."""
 +
 +from agent.transports.chat_completions import ChatCompletionsTransport
 +from hermes_cli.config import _normalize_custom_provider_entry
@@ -183,10 +179,10 @@ index 0000000000..8f7cf5213b
 +
 +def _wire(scope, session, *, enabled=True):
 +    provider = _normalize_custom_provider_entry({
-+        "name": "slotline-local",
++        "name": "soulsteads-router-local",
 +        "base_url": "http://100.127.255.254:4011/v1",
 +        "api_mode": "chat_completions",
-+        "slotline_session_affinity": enabled,
++        "soulsteads_router_session_affinity": enabled,
 +    })
 +    overrides = _custom_provider_request_overrides(provider)
 +    return ChatCompletionsTransport().build_kwargs(
@@ -203,18 +199,18 @@ index 0000000000..8f7cf5213b
 +    first = _wire("conversation-1", "physical-1")
 +    rotated = _wire("conversation-1", "physical-2")
 +    other = _wire("conversation-2", "physical-3")
-+    header = first["extra_headers"]["X-Slotline-Session"]
++    header = first["extra_headers"]["X-Soulsteads-Router-Session"]
 +    assert len(header) == 64
 +    assert "conversation" not in header
-+    assert header == rotated["extra_headers"]["X-Slotline-Session"]
-+    assert header != other["extra_headers"]["X-Slotline-Session"]
++    assert header == rotated["extra_headers"]["X-Soulsteads-Router-Session"]
++    assert header != other["extra_headers"]["X-Soulsteads-Router-Session"]
 +    assert first["extra_headers"]["X-Request-Source"] == "test"
-+    assert "slotline_session_affinity" not in first
++    assert "soulsteads_router_session_affinity" not in first
 +
 +
 +def test_opt_in_and_missing_scope_send_no_hint():
-+    assert "X-Slotline-Session" not in _wire("conversation-1", "physical-1", enabled=False)["extra_headers"]
-+    assert "X-Slotline-Session" not in _wire(None, None)["extra_headers"]
++    assert "X-Soulsteads-Router-Session" not in _wire("conversation-1", "physical-1", enabled=False)["extra_headers"]
++    assert "X-Soulsteads-Router-Session" not in _wire(None, None)["extra_headers"]
 +
 +
 +def test_provider_profile_path_uses_the_same_header_contract():
@@ -222,29 +218,28 @@ index 0000000000..8f7cf5213b
 +        "qwen38flash",
 +        [{"role": "user", "content": "hello"}],
 +        provider_profile=get_provider_profile("qwen"),
-+        request_overrides={"slotline_session_affinity": True},
++        request_overrides={"soulsteads_router_session_affinity": True},
 +        cache_scope_id="conversation-1",
 +        session_id="physical-2",
 +    )
-+    assert wire["extra_headers"]["X-Slotline-Session"] == _wire("conversation-1", "physical-1")["extra_headers"]["X-Slotline-Session"]
-+    assert "slotline_session_affinity" not in wire
++    assert wire["extra_headers"]["X-Soulsteads-Router-Session"] == _wire("conversation-1", "physical-1")["extra_headers"]["X-Soulsteads-Router-Session"]
++    assert "soulsteads_router_session_affinity" not in wire
 +
 +
 +def test_named_provider_resolution_carries_opt_in(monkeypatch):
 +    monkeypatch.setattr(runtime_provider, "load_config", lambda: {"providers": {
-+        "slotline-local": {
-+            "name": "slotline-local",
++        "soulsteads-router-local": {
++            "name": "soulsteads-router-local",
 +            "api": "http://100.127.255.254:4011/v1",
 +            "transport": "chat_completions",
 +            "api_key": "local-test-key",
-+            "slotline_session_affinity": True,
++            "soulsteads_router_session_affinity": True,
 +        }
 +    }})
 +    monkeypatch.setattr(runtime_provider, "_try_resolve_from_custom_pool", lambda *a, **k: None)
-+    resolved = runtime_provider._resolve_named_custom_runtime(requested_provider="slotline-local")
-+    assert resolved["request_overrides"] == {"slotline_session_affinity": True}
++    resolved = runtime_provider._resolve_named_custom_runtime(requested_provider="soulsteads-router-local")
++    assert resolved["request_overrides"] == {"soulsteads_router_session_affinity": True}
 diff --git a/website/docs/user-guide/configuring-models.md b/website/docs/user-guide/configuring-models.md
-index 2ede0dba3c..f68a74673c 100644
 --- a/website/docs/user-guide/configuring-models.md
 +++ b/website/docs/user-guide/configuring-models.md
 @@ -167,7 +167,7 @@ When `fallback_chain` is absent, `auto` uses the top-level `fallback_providers`
@@ -260,15 +255,15 @@ index 2ede0dba3c..f68a74673c 100644
  
  With discovery off, the model picker (`hermes model`, `/model`) shows the configured list instead of a live probe.
  
-+**`slotline_session_affinity`** — set to `true` only on a Slotline Chat Completions provider. Hermes sends `X-Slotline-Session` with a SHA-256 digest of the conversation's stable cache scope. The header survives context compression session rotation and lets Slotline keep each conversation on its leased endpoint. It is a routing hint scoped by the provider's API key; it does not identify or authenticate an agent. Hermes sends no header when the conversation has no scope.
++**`soulsteads_router_session_affinity`** — set to `true` only on a Soulsteads Router Chat Completions provider. Hermes sends `X-Soulsteads-Router-Session` with a SHA-256 digest of the conversation's stable cache scope. The header survives context compression session rotation and lets Soulsteads Router keep each conversation on its leased endpoint. It is a routing hint scoped by the provider's API key; it does not identify or authenticate an agent. Hermes sends no header when the conversation has no scope.
 +
 +```yaml
 +providers:
-+  slotline-local:
++  soulsteads-router-local:
 +    api: http://100.127.255.254:4011/v1
-+    key_env: SLOTLINE_WORK_LOCAL_KEY
++    key_env: SOULSTEADS_ROUTER_WORK_LOCAL_KEY
 +    transport: chat_completions
-+    slotline_session_affinity: true
++    soulsteads_router_session_affinity: true
 +```
 +
  For a gateway that resolves a bare model alias only after receiving the

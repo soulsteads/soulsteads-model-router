@@ -58,7 +58,7 @@ async fn qualification_load_recovers_after_one_bounded_fast_reprobe() {
         .build()
         .unwrap();
     runtime.observations.lock().unwrap()[0].served = None;
-    // A successful synthetic inference outside Slotline occupies the fixture's
+    // A successful synthetic inference outside Soulsteads Router occupies the fixture's
     // shared engine. The qualification request queues behind healthy work.
     let backend_url = format!("http://{}/v1/chat/completions", routes[0].address);
     let load = tokio::spawn(async move {
@@ -94,7 +94,7 @@ async fn qualification_load_recovers_after_one_bounded_fast_reprobe() {
             "timeout"
         );
     }
-    // Backend readiness still succeeds independently while Slotline refuses work.
+    // Backend readiness still succeeds independently while Soulsteads Router refuses work.
     assert!(
         reqwest::get(format!("http://{}/health", routes[0].address))
             .await

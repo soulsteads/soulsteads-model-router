@@ -727,7 +727,7 @@ pub(crate) async fn check(config: &Config) -> Value {
 pub(crate) async fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let (command, path) = match args {
         [command, path] if matches!(command.as_str(), "status" | "check") => (command, path),
-        _ => return Err("usage: slotline hindsight <status|check> CONFIG.yaml".into()),
+        _ => return Err("usage: soulsteads-router hindsight <status|check> CONFIG.yaml".into()),
     };
     let text = tokio::fs::read_to_string(path)
         .await
@@ -910,7 +910,7 @@ mod offline_tests {
         config.api_key_file = Some(link.to_str().unwrap().into());
         assert!(matches!(config.secret().await, Err(Failure::Secret)));
         config.api_key_file = None;
-        config.api_key_env = Some("SLOTLINE_HINDSIGHT_TEST_MISSING_51885".into());
+        config.api_key_env = Some("SOULSTEADS_ROUTER_HINDSIGHT_TEST_MISSING_51885".into());
         assert!(matches!(config.secret().await, Err(Failure::Secret)));
     }
 

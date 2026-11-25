@@ -443,8 +443,11 @@ impl Store {
         }
         let mut random = [0u8; 16];
         getrandom::fill(&mut random).map_err(|_| STORAGE_ERROR)?;
-        let temporary = CString::new(format!(".slotline-auth-{}", URL_SAFE_NO_PAD.encode(random)))
-            .map_err(|_| STORAGE_ERROR)?;
+        let temporary = CString::new(format!(
+            ".soulsteads-router-auth-{}",
+            URL_SAFE_NO_PAD.encode(random)
+        ))
+        .map_err(|_| STORAGE_ERROR)?;
         let result = (|| {
             let mut file = open_at(
                 &self.directory,
@@ -815,10 +818,10 @@ pub(crate) fn status(config: &CodexConfig) -> Value {
 
 pub(crate) async fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let [command, path] = args else {
-        return Err("usage: slotline codex login|status CONFIG.yaml".into());
+        return Err("usage: soulsteads-router codex login|status CONFIG.yaml".into());
     };
     if command != "login" && command != "status" {
-        return Err("usage: slotline codex login|status CONFIG.yaml".into());
+        return Err("usage: soulsteads-router codex login|status CONFIG.yaml".into());
     }
     let contents = std::fs::read(path)?;
     let config: crate::config::Config = serde_yaml::from_slice(&contents)?;
@@ -890,7 +893,9 @@ mod unit_tests {
     fn codex_auth_status_never_contains_account_material_or_storage_errors() {
         let config = CodexConfig {
             enabled: true,
-            account_file: Some("/var/lib/slotline-nonexistent-fixture/account.json".into()),
+            account_file: Some(
+                "/var/lib/soulsteads-router-nonexistent-fixture/account.json".into(),
+            ),
             ..CodexConfig::default()
         };
         assert_eq!(

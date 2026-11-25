@@ -14,10 +14,10 @@ explicitly ignored by default: two loopback-HTTP checks and two synthetic
 overhead measurements. An ignored test is not a pass. Python parser/report
 tests use the standard library.
 
-Tokenizer-dependent Rust tests return early when `SLOTLINE_TEST_TOKENIZER` is
+Tokenizer-dependent Rust tests return early when `SOULSTEADS_ROUTER_TEST_TOKENIZER` is
 absent; the test runner can show them as passed without exercising tokenizer
 assertions. The optional private-request diagnostic also requires
-`SLOTLINE_TEST_REQUEST`. Do not claim tokenizer qualification from the default
+`SOULSTEADS_ROUTER_TEST_REQUEST`. Do not claim tokenizer qualification from the default
 summary. Supply an independently verified, model-compatible tokenizer to run
 those assertions; the [optional downloader](INTEGRATIONS.md) has an access
 limitation. Keep any real request fixture outside Git.
@@ -28,7 +28,7 @@ changing the socket contract.
 
 ## Real HTTP fixture processes
 
-Build the binary first. Set `SLOTLINE_TEST_HOST` to a Tailnet IPv4 address
+Build the binary first. Set `SOULSTEADS_ROUTER_TEST_HOST` to a Tailnet IPv4 address
 actually assigned to your test host; the default `100.127.255.254` is illustrative,
 not an address assumed to exist on your network. The gateway's current listener
 restriction applies to fixtures too. Do not change production networking to run
@@ -40,15 +40,15 @@ are disposable and separate from an installed service.
 
 ```sh
 cargo build --release --locked
-export SLOTLINE_TEST_HOST=100.127.255.254  # replace with your own assigned address
-export SLOTLINE_TEST_BINARY="$PWD/target/release/soulsteads-router"
+export SOULSTEADS_ROUTER_TEST_HOST=100.127.255.254  # replace with your own assigned address
+export SOULSTEADS_ROUTER_TEST_BINARY="$PWD/target/release/soulsteads-router"
 PYTHONDONTWRITEBYTECODE=1 python3 tests/mock_validation.py
 PYTHONDONTWRITEBYTECODE=1 python3 tests/key_store_http.py
 PYTHONDONTWRITEBYTECODE=1 python3 tests/policy_reload_validation.py
 PYTHONDONTWRITEBYTECODE=1 python3 tests/timeout_budget_validation.py
 PYTHONDONTWRITEBYTECODE=1 python3 tests/stream_deadline_validation.py
 PYTHONDONTWRITEBYTECODE=1 python3 tests/stream_progress_validation.py \
-  --binary "$SLOTLINE_TEST_BINARY" --result /tmp/slotline-stream-progress-result.json
+  --binary "$SOULSTEADS_ROUTER_TEST_BINARY" --result /tmp/soulsteads-router-stream-progress-result.json
 ```
 
 `mock_validation.py` exercises actual HTTP authentication, alias filtering,
@@ -57,7 +57,7 @@ affinity, and status CLI behavior. The other fixtures isolate key lifecycle,
 restricted policy reload, request deadlines, and stream-progress semantics.
 
 The Headroom failure fixture additionally needs an independently installed Rust
-sidecar. It is not built by this repository. Set `SLOTLINE_HEADROOM_PROXY` to
+sidecar. It is not built by this repository. Set `SOULSTEADS_ROUTER_HEADROOM_PROXY` to
 its executable path, then run `python3 tests/headroom_failure_validation.py` with
 the same host and binary settings. Missing this dependency is a blocked optional
 integration check, not a reason to substitute simulated output.
@@ -90,7 +90,7 @@ separate tests. Use `--offline` only when dependencies are already cached.
 
 ```sh
 python3 tests/responses_projection_validation.py \
-  --binary "$SLOTLINE_TEST_BINARY" --result /tmp/responses-projection.json
+  --binary "$SOULSTEADS_ROUTER_TEST_BINARY" --result /tmp/responses-projection.json
 ```
 
 This isolated loopback HTTP fixture uses synthetic upstreams and disposable
@@ -129,7 +129,7 @@ python3 tests/routing_offline_cli.py --manifest routing-offline-results.json
 python3 tests/routing_http_acceptance.py --manifest routing-http-results.json
 ```
 
-Set `SLOTLINE_TEST_BINARY` explicitly, plus `SLOTLINE_TEST_HOST` for HTTP. Use a
+Set `SOULSTEADS_ROUTER_TEST_BINARY` explicitly, plus `SOULSTEADS_ROUTER_TEST_HOST` for HTTP. Use a
 private `TMPDIR` suitable for credential readers and short Unix socket paths.
 Offline checks include positive network-denial and file-metadata tracing controls,
 including `stat`/`statx` account ancestor probes and a synthetic positive control.

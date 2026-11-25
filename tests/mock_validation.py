@@ -17,12 +17,12 @@ import urllib.request
 import zlib
 
 ROOT = Path(__file__).resolve().parents[1]
-BINARY = Path(os.environ.get("SLOTLINE_TEST_BINARY", str(ROOT / "target/release/soulsteads-router")))
-HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.127.255.254")
+BINARY = Path(os.environ.get("SOULSTEADS_ROUTER_TEST_BINARY", str(ROOT / "target/release/soulsteads-router")))
+HOST = os.environ.get("SOULSTEADS_ROUTER_TEST_HOST", "100.127.255.254")
 PORT = 4012
-KEY = "slotline-mock-operator-key-1234567890"
-LIMITED_KEY = "slotline-mock-limited-key-1234567890"
-CANARY_KEY = "slotline-mock-canary-key-1234567890"
+KEY = "soulsteads-router-mock-operator-key-1234567890"
+LIMITED_KEY = "soulsteads-router-mock-limited-key-1234567890"
+CANARY_KEY = "soulsteads-router-mock-canary-key-1234567890"
 
 
 class Backend(BaseHTTPRequestHandler):
@@ -259,7 +259,7 @@ def request(path, body=None, key=KEY, extra_headers=None):
 def chat(model, key=KEY, session=None, **extra):
     body = {"model": model, "messages": [{"role": "user", "content": "test"}], "max_tokens": 8}
     body.update(extra)
-    headers = {"X-Slotline-Session": session} if session is not None else None
+    headers = {"X-Soulsteads-Router-Session": session} if session is not None else None
     return request("/v1/chat/completions", body, key=key, extra_headers=headers)
 
 
@@ -350,7 +350,7 @@ aliases:
             assert KEY not in cli.stdout and KEY not in cli.stderr
             json_cli = subprocess.run([str(BINARY), "status", str(root / "config.yaml"), "--json"], capture_output=True, text=True, timeout=15)
             assert json_cli.returncode == 0 and "routes" in json.loads(json_cli.stdout), json_cli.stderr
-            env = dict(os.environ, SLOTLINE_CONFIG=str(root / "config.yaml"))
+            env = dict(os.environ, SOULSTEADS_ROUTER_CONFIG=str(root / "config.yaml"))
             bare_cli = subprocess.run([str(BINARY), "status"], env=env, capture_output=True, text=True, timeout=15)
             assert bare_cli.returncode == 0 and bare_cli.stdout == cli.stdout, bare_cli.stderr
             bare_json = subprocess.run([str(BINARY), "status", "--json"], env=env, capture_output=True, text=True, timeout=15)
@@ -572,11 +572,11 @@ aliases:
             after = attempts()
             assert after[session_route] == before[session_route] + 1, (before, after)
             metrics_before = request("/metrics")[1]
-            expired_before = int(next(line.split()[1] for line in metrics_before.splitlines() if line.startswith("slotline_affinity_expired_total ")))
+            expired_before = int(next(line.split()[1] for line in metrics_before.splitlines() if line.startswith("soulsteads_router_affinity_expired_total ")))
             time.sleep(5.1)
             assert chat("qwen38flash", session=session, messages=[{"role": "user", "content": "rotate"}])[0] == 200
             metrics_after = request("/metrics")[1]
-            expired_after = int(next(line.split()[1] for line in metrics_after.splitlines() if line.startswith("slotline_affinity_expired_total ")))
+            expired_after = int(next(line.split()[1] for line in metrics_after.splitlines() if line.startswith("soulsteads_router_affinity_expired_total ")))
             assert expired_after > expired_before, (expired_before, expired_after)
 
             # Direct and adapter routes to the same physical Qwen server
@@ -668,7 +668,7 @@ aliases:
             assert abs(sum(item["traffic_percent_total"] for item in route_data.values())-100)<0.001
             assert abs(sum(item["traffic_percent_5m"] for item in route_data.values())-100)<0.001
             _, metrics_data=request("/metrics")
-            assert "slotline_route_skips_total" in metrics_data and "slotline_route_traffic_percent" in metrics_data
+            assert "soulsteads_router_route_skips_total" in metrics_data and "soulsteads_router_route_traffic_percent" in metrics_data
             status, data = chat("qwen38flash", messages=[{"role": "user", "content": "retry"}])
             assert status == 200 and json.loads(data)["model"] == "qwen38flash"
             slow_body = {"model": "qwen38", "messages": [{"role": "user", "content": "slow"}], "max_tokens": 8, "stream": True}
@@ -736,7 +736,7 @@ aliases:
             _, state = request("/healthz")
             timeout_completions = json.loads(state)["routes"]["partial-9"]["completed_total"]
             _, metrics_before = request("/metrics")
-            errors_before = int(next(line.split()[-1] for line in metrics_before.splitlines() if line.startswith("slotline_upstream_errors_total ")))
+            errors_before = int(next(line.split()[-1] for line in metrics_before.splitlines() if line.startswith("soulsteads_router_upstream_errors_total ")))
             timeout_body = {"model": "direct-9", "messages": [{"role": "user", "content": "timeout_stream"}], "max_tokens": 8, "stream": True}
             timeout_req = urllib.request.Request(f"http://{HOST}:{PORT}/v1/chat/completions", data=json.dumps(timeout_body).encode(), headers={"Authorization": "Bearer " + KEY, "Content-Type": "application/json"})
             stream_failed = False
@@ -752,12 +752,12 @@ aliases:
             assert route["state"] == "cooling_down" and route["active"] == 0, route
             assert route["completed_total"] == timeout_completions, route
             _, metrics_after = request("/metrics")
-            errors_after = int(next(line.split()[-1] for line in metrics_after.splitlines() if line.startswith("slotline_upstream_errors_total ")))
+            errors_after = int(next(line.split()[-1] for line in metrics_after.splitlines() if line.startswith("soulsteads_router_upstream_errors_total ")))
             assert errors_after == errors_before + 1, (errors_before, errors_after)
             _, state = request("/healthz")
             completions_before = json.loads(state)["routes"]["flash-2"]["completed_total"]
             _, metrics_before = request("/metrics")
-            errors_before = int(next(line.split()[-1] for line in metrics_before.splitlines() if line.startswith("slotline_upstream_errors_total ")))
+            errors_before = int(next(line.split()[-1] for line in metrics_before.splitlines() if line.startswith("soulsteads_router_upstream_errors_total ")))
             truncated_body = {"model": "direct-2", "messages": [{"role": "user", "content": "truncated"}], "max_tokens": 8, "stream": True}
             truncated_req = urllib.request.Request(f"http://{HOST}:{PORT}/v1/chat/completions", data=json.dumps(truncated_body).encode(), headers={"Authorization": "Bearer " + KEY, "Content-Type": "application/json"})
             stream_failed = False
@@ -773,12 +773,12 @@ aliases:
             assert route["state"] == "cooling_down" and route["active"] == 0, route
             assert route["completed_total"] == completions_before, route
             _, metrics_after = request("/metrics")
-            errors_after = int(next(line.split()[-1] for line in metrics_after.splitlines() if line.startswith("slotline_upstream_errors_total ")))
+            errors_after = int(next(line.split()[-1] for line in metrics_after.splitlines() if line.startswith("soulsteads_router_upstream_errors_total ")))
             assert errors_after == errors_before + 1, (errors_before, errors_after)
             _, state = request("/healthz")
             completions_before = json.loads(state)["routes"]["responses-16"]["completed_total"]
             _, metrics_before = request("/metrics")
-            errors_before = int(next(line.split()[-1] for line in metrics_before.splitlines() if line.startswith("slotline_upstream_errors_total ")))
+            errors_before = int(next(line.split()[-1] for line in metrics_before.splitlines() if line.startswith("soulsteads_router_upstream_errors_total ")))
             truncated_responses_body = {"model": "direct-16", "input": "truncated", "max_output_tokens": 8, "stream": True}
             truncated_responses_req = urllib.request.Request(f"http://{HOST}:{PORT}/v1/responses", data=json.dumps(truncated_responses_body).encode(), headers={"Authorization": "Bearer " + KEY, "Content-Type": "application/json"})
             stream_failed = False
@@ -794,12 +794,12 @@ aliases:
             assert route["state"] == "cooling_down" and route["active"] == 0, route
             assert route["completed_total"] == completions_before, route
             _, metrics_after = request("/metrics")
-            errors_after = int(next(line.split()[-1] for line in metrics_after.splitlines() if line.startswith("slotline_upstream_errors_total ")))
+            errors_after = int(next(line.split()[-1] for line in metrics_after.splitlines() if line.startswith("soulsteads_router_upstream_errors_total ")))
             assert errors_after == errors_before + 1, (errors_before, errors_after)
             _, state = request("/healthz")
             completions_before = json.loads(state)["routes"]["codex-18"]["completed_total"]
             _, metrics_before = request("/metrics")
-            errors_before = int(next(line.split()[-1] for line in metrics_before.splitlines() if line.startswith("slotline_upstream_errors_total ")))
+            errors_before = int(next(line.split()[-1] for line in metrics_before.splitlines() if line.startswith("soulsteads_router_upstream_errors_total ")))
             premature_done_body = {"model": "codex-mock", "input": "premature_done", "max_output_tokens": 8, "stream": True}
             premature_done_req = urllib.request.Request(f"http://{HOST}:{PORT}/v1/responses", data=json.dumps(premature_done_body).encode(), headers={"Authorization": "Bearer " + KEY, "Content-Type": "application/json"})
             stream_failed = False
@@ -819,7 +819,7 @@ aliases:
             assert route["state"] == "cooling_down" and route["active"] == 0, route
             assert route["completed_total"] == completions_before, route
             _, metrics_after = request("/metrics")
-            errors_after = int(next(line.split()[-1] for line in metrics_after.splitlines() if line.startswith("slotline_upstream_errors_total ")))
+            errors_after = int(next(line.split()[-1] for line in metrics_after.splitlines() if line.startswith("soulsteads_router_upstream_errors_total ")))
             assert errors_after == errors_before + 1, (errors_before, errors_after)
             print(json.dumps({"result": "pass", "statuses": {str(code): statuses.count(code) for code in set(statuses)}, "peak": Backend.peak}, sort_keys=True))
         finally:

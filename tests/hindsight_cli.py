@@ -1,4 +1,4 @@
-"""Offline CLI regression checks; pass the freshly built slotline binary."""
+"""Offline CLI regression checks; pass the freshly built soulsteads-router binary."""
 
 import ctypes
 import json
@@ -58,7 +58,7 @@ class HindsightCliTests(unittest.TestCase):
             return subprocess.run(
                 [BINARY, "hindsight", command, str(path)],
                 capture_output=True, text=True, timeout=5,
-                env={**os.environ, "SLOTLINE_HINDSIGHT_CLI_TEST": "synthetic-secret-sentinel", "RUST_LOG": "off"},
+                env={**os.environ, "SOULSTEADS_ROUTER_HINDSIGHT_CLI_TEST": "synthetic-secret-sentinel", "RUST_LOG": "off"},
                 preexec_fn=deny_network if offline else None,
             )
 
@@ -87,7 +87,7 @@ class HindsightCliTests(unittest.TestCase):
         self.assertEqual(report["health"], "not_checked")
 
     def test_env_reference_is_not_printed_or_required(self):
-        for name in ["SLOTLINE_HINDSIGHT_CLI_TEST", "SLOTLINE_HINDSIGHT_ABSENT_51885"]:
+        for name in ["SOULSTEADS_ROUTER_HINDSIGHT_CLI_TEST", "SOULSTEADS_ROUTER_HINDSIGHT_ABSENT_51885"]:
             result = self.invoke("status", {
                 "enabled": True, "endpoint": "http://127.0.0.1:1", "api_key_env": name,
             })

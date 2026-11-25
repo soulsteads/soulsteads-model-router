@@ -39,11 +39,11 @@ impl Histogram {
         for (idx, bound) in BUCKETS.iter().enumerate() {
             count += self.counts[idx];
             output.push_str(&format!(
-                "slotline_audit_{name}_milliseconds_bucket{{{labels},le=\"{bound}\"}} {count}\n"
+                "soulsteads_router_audit_{name}_milliseconds_bucket{{{labels},le=\"{bound}\"}} {count}\n"
             ));
         }
         count += self.counts[BUCKETS.len()];
-        output.push_str(&format!("slotline_audit_{name}_milliseconds_bucket{{{labels},le=\"+Inf\"}} {count}\nslotline_audit_{name}_milliseconds_sum{{{labels}}} {}\nslotline_audit_{name}_milliseconds_count{{{labels}}} {count}\n",self.sum));
+        output.push_str(&format!("soulsteads_router_audit_{name}_milliseconds_bucket{{{labels},le=\"+Inf\"}} {count}\nsoulsteads_router_audit_{name}_milliseconds_sum{{{labels}}} {}\nsoulsteads_router_audit_{name}_milliseconds_count{{{labels}}} {count}\n",self.sum));
     }
 }
 #[derive(Clone, Default)]
@@ -90,12 +90,12 @@ impl Metrics {
     }
     pub(crate) fn render(&self) -> String {
         let mut output = format!(
-            "slotline_audit_observations_dropped_total {}\n",
+            "soulsteads_router_audit_observations_dropped_total {}\n",
             self.dropped.load(Ordering::Relaxed)
         );
         for name in ["duration", "headers", "first_output", "attempt"] {
             output.push_str(&format!(
-                "# TYPE slotline_audit_{name}_milliseconds histogram\n"
+                "# TYPE soulsteads_router_audit_{name}_milliseconds histogram\n"
             ));
         }
         for (name, counter) in [
@@ -107,7 +107,7 @@ impl Metrics {
             ("abandoned", &audit_sink::COUNTERS.abandoned),
         ] {
             output.push_str(&format!(
-                "slotline_audit_log_{name}_total {}\n",
+                "soulsteads_router_audit_log_{name}_total {}\n",
                 counter.load(Ordering::Relaxed)
             ));
         }
@@ -132,14 +132,14 @@ impl Metrics {
             }
             for (idx, outcome) in OUTCOMES.iter().enumerate() {
                 output.push_str(&format!(
-                    "slotline_audit_outcomes_total{{{labels},outcome=\"{outcome}\"}} {}\n",
+                    "soulsteads_router_audit_outcomes_total{{{labels},outcome=\"{outcome}\"}} {}\n",
                     group.outcomes[idx]
                 ));
             }
-            output.push_str(&format!("slotline_audit_backend_total{{{labels},outcome=\"complete\"}} {}\nslotline_audit_backend_total{{{labels},outcome=\"failed\"}} {}\n",group.backend_complete,group.backend_failed));
-            output.push_str(&format!("slotline_audit_backend_total{{{labels},outcome=\"incomplete\"}} {}\nslotline_audit_backend_total{{{labels},outcome=\"unknown\"}} {}\nslotline_audit_delivery_completed_total{{{labels}}} {}\n",group.backend_incomplete,group.backend_unknown,group.delivery_complete));
+            output.push_str(&format!("soulsteads_router_audit_backend_total{{{labels},outcome=\"complete\"}} {}\nsoulsteads_router_audit_backend_total{{{labels},outcome=\"failed\"}} {}\n",group.backend_complete,group.backend_failed));
+            output.push_str(&format!("soulsteads_router_audit_backend_total{{{labels},outcome=\"incomplete\"}} {}\nsoulsteads_router_audit_backend_total{{{labels},outcome=\"unknown\"}} {}\nsoulsteads_router_audit_delivery_completed_total{{{labels}}} {}\n",group.backend_incomplete,group.backend_unknown,group.delivery_complete));
             for (idx, name) in ["input", "output", "total"].iter().enumerate() {
-                output.push_str(&format!("slotline_audit_usage_{name}_tokens_samples_total{{{labels}}} {}\nslotline_audit_usage_{name}_tokens_total{{{labels}}} {}\n",group.usage_samples[idx],group.usage_tokens[idx]));
+                output.push_str(&format!("soulsteads_router_audit_usage_{name}_tokens_samples_total{{{labels}}} {}\nsoulsteads_router_audit_usage_{name}_tokens_total{{{labels}}} {}\n",group.usage_samples[idx],group.usage_tokens[idx]));
             }
         }
         output

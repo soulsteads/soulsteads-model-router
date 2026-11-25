@@ -1,22 +1,22 @@
 # Optional Hindsight connection
 
-Slotline can expose **explicit** retain, recall and reflect operations backed by
+Soulsteads Router can expose **explicit** retain, recall and reflect operations backed by
 an existing Hindsight HTTP server. The integration is disabled by default.
-Hindsight is not an inference dependency: Slotline never calls memory from chat,
+Hindsight is not an inference dependency: Soulsteads Router never calls memory from chat,
 Responses or embeddings, never captures transcripts, and never injects recalled
 content into prompts. No Hindsight server, installer, lifecycle management, MCP
 proxy, general plugin runtime or Memlake integration is included.
 
 ## Operator configuration
 
-Merge this optional section into your existing Slotline policy. These are
+Merge this optional section into your existing Soulsteads Router policy. These are
 illustrative values, not a command to modify a running service:
 
 ```yaml
 hindsight:
   enabled: true
   endpoint: http://127.0.0.1:9180
-  api_key_env: SLOTLINE_HINDSIGHT_API_KEY
+  api_key_env: SOULSTEADS_ROUTER_HINDSIGHT_API_KEY
   # Alternative, not additional:
   # api_key_file: /absolute/private/path/hindsight.key
   timeout_ms: 60000
@@ -33,7 +33,7 @@ hindsight:
   than `/`), query strings, fragments and backslash/whitespace variants are
   rejected. HTTPS is recommended. HTTP sends the upstream token and memory in
   cleartext at the HTTP layer: use it only over a trusted loopback/private
-  encrypted network. Slotline does not discover endpoints or follow redirects,
+  encrypted network. Soulsteads Router does not discover endpoints or follow redirects,
   and this client ignores proxy environment variables. Egress/DNS restrictions
   remain the operator's responsibility.
 - Configure **at most one** of `api_key_env` and `api_key_file`. Inline secrets
@@ -53,11 +53,11 @@ hindsight:
   connection, response headers and response body. There are no memory retries.
   The example uses 60000 because bank statistics and LLM-backed operations can
   take tens of seconds. Choose a budget for your backend; do not remove deadlines.
-- `bindings` maps an existing Slotline credential identity to exactly one bank.
+- `bindings` maps an existing Soulsteads Router credential identity to exactly one bank.
   For file credentials use `credentials[].name`; for the verifier store use the
   key policy's `id`, **not** the key prefix or token. A missing mapping denies
   all memory operations. Unknown identities stay inert; adding a mapping does
-  not create or authorize a Slotline credential. Rotation retaining an identity
+  not create or authorize a Soulsteads Router credential. Rotation retaining an identity
   retains its mapping; revocation and expiry still apply. Do not reuse an old
   identity without reviewing its mapping.
 - A mapping grants recall and reflect; retain additionally requires
@@ -68,7 +68,7 @@ hindsight:
 - Credential rate limits still apply. Memory has a separate class-scoped
   in-flight pool, bounded by that class's configured `max_in_flight`. Pending
   memory requests do not consume inference permits, including when Hindsight
-  calls a Slotline model using a dedicated credential in the same class.
+  calls a Soulsteads Router model using a dedicated credential in the same class.
   Grant memory access only to intended workloads. These mappings do not grant
   model aliases, route access or cloud permission.
 
@@ -82,12 +82,12 @@ never print its value, reference path, endpoint or upstream error body.
 ## Status and read-only checks
 
 ```sh
-soulsteads-router hindsight status /absolute/path/slotline.yaml
-soulsteads-router hindsight check /absolute/path/slotline.yaml
+soulsteads-router hindsight status /absolute/path/soulsteads-router.yaml
+soulsteads-router hindsight check /absolute/path/soulsteads-router.yaml
 ```
 
 Both commands print a JSON object. They read local policy configuration without
-loading Slotline workload keys, opening the verifier store or starting a router.
+loading Soulsteads Router workload keys, opening the verifier store or starting a router.
 `status` is entirely offline: it reports enablement, reference presence, timeout
 and binding count, with `health: "not_checked"`. It does **not** claim the secret
 exists or the server is reachable.
@@ -115,9 +115,9 @@ check exits successfully without probing anything.
 
 ## Explicit authenticated HTTP API
 
-All three endpoints require the existing Slotline workload Bearer credential:
+All three endpoints require the existing Soulsteads Router workload Bearer credential:
 
-| Slotline endpoint | Fixed upstream POST path |
+| Soulsteads Router endpoint | Fixed upstream POST path |
 | --- | --- |
 | `/v1/memory/retain` | `/v1/default/banks/{mapped-bank}/memories` |
 | `/v1/memory/recall` | `/v1/default/banks/{mapped-bank}/memories/recall` |
@@ -206,19 +206,19 @@ same fixed deadline. Cancellation cannot undo work already accepted upstream,
 including async retention. No body, transcript or memory content is logged by
 this integration; existing router request correlation records generic metadata.
 
-## Hindsight using Slotline models
+## Hindsight using Soulsteads Router models
 
 Hindsight can independently act as an OpenAI-compatible **model client** of
-Slotline's `/v1/chat/completions` and `/v1/embeddings` endpoints. Configure that
-existing Hindsight deployment separately with a Slotline base URL ending in
-`/v1`, an approved chat/model alias, and a dedicated least-privilege Slotline
+Soulsteads Router's `/v1/chat/completions` and `/v1/embeddings` endpoints. Configure that
+existing Hindsight deployment separately with a Soulsteads Router base URL ending in
+`/v1`, an approved chat/model alias, and a dedicated least-privilege Soulsteads Router
 workload key. If using remote OpenAI-compatible embeddings, select a compatible
 embedding alias and preserve the bank's existing embedding model/dimensionality;
 changing it is a separate data-migration decision. Consult your installed
 Hindsight version's model/provider settings rather than copying unverified env
 variable names. This integration does not alter those settings.
 
-Hindsight's Slotline model key is **different** from the Hindsight API key held by
+Hindsight's Soulsteads Router model key is **different** from the Hindsight API key held by
 this addon. Its credential needs only approved model aliases/routes; normally
 give it **no memory binding**. Existing `cloud_allowed` and provider-specific
 gates remain required for cloud inference. Virtual routing policies additionally require independent grants for the policy
@@ -228,15 +228,15 @@ as model targets are rejected by existing policy validation. The judge retains
 the router's existing audit isolation; only the selected target contributes to
 public inference attempt, retry and usage accounting. Explicit
 memory operations may cause Hindsight to call its configured models, but ordinary
-Slotline model inference does not invoke memory, so there is no enrichment loop.
+Soulsteads Router model inference does not invoke memory, so there is no enrichment loop.
 
 Keep existing agent-owned memory banks and ownership policies. Direct Hindsight
 SDK/HTTP/MCP clients remain separate: the facade does **not** magically protect
-them with Slotline credentials or mappings. Protect upstream keys, MCP tools,
+them with Soulsteads Router credentials or mappings. Protect upstream keys, MCP tools,
 network access and bank authorization independently. A broad upstream key is an
 operator-held trust boundary; prefer the least privilege your Hindsight server
 supports and never give that key to facade callers. No upstream service, bank,
-model setting, retention policy or live data is changed by configuring Slotline.
+model setting, retention policy or live data is changed by configuring Soulsteads Router.
 
 ## Verification
 
@@ -247,7 +247,7 @@ that permits loopback sockets and has a private temporary directory:
 cargo test --locked hindsight_
 cargo build --locked
 python3 tests/hindsight_cli.py /path/to/soulsteads-router
-SLOTLINE_TEST_BINARY=/path/to/soulsteads-router SLOTLINE_TEST_HOST=YOUR_ASSIGNED_TAILNET_IPV4 \
+SOULSTEADS_ROUTER_TEST_BINARY=/path/to/soulsteads-router SOULSTEADS_ROUTER_TEST_HOST=YOUR_ASSIGNED_TAILNET_IPV4 \
   python3 tests/hindsight_http.py
 ```
 

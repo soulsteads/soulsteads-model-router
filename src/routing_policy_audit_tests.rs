@@ -130,7 +130,7 @@ fn assert_permits(fixture: &Fixture) {
 
 fn assert_metric(metrics: &str, name: &str, route: &str, extra: &str, value: u64) {
     let expected = format!(
-        "slotline_audit_{name}{{route=\"{route}\",class=\"fixture\",endpoint=\"chat\"{extra}}} {value}"
+        "soulsteads_router_audit_{name}{{route=\"{route}\",class=\"fixture\",endpoint=\"chat\"{extra}}} {value}"
     );
     assert!(
         metrics.lines().any(|line| line == expected),

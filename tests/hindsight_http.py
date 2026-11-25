@@ -1,6 +1,6 @@
 """Compiled gateway acceptance with disposable HTTP services and synthetic keys.
 
-Set SLOTLINE_TEST_BINARY, SLOTLINE_TEST_HOST (an assigned Tailnet IPv4), and a
+Set SOULSTEADS_ROUTER_TEST_BINARY, SOULSTEADS_ROUTER_TEST_HOST (an assigned Tailnet IPv4), and a
 private, short TMPDIR. Run sequentially. Fixtures/logs are retained below TMPDIR
 for inspection; the runner prints their root. No live services are used.
 """
@@ -21,8 +21,8 @@ import time
 import unittest
 
 
-BINARY = str(Path(os.environ["SLOTLINE_TEST_BINARY"]).resolve())
-HOST = os.environ["SLOTLINE_TEST_HOST"]
+BINARY = str(Path(os.environ["SOULSTEADS_ROUTER_TEST_BINARY"]).resolve())
+HOST = os.environ["SOULSTEADS_ROUTER_TEST_HOST"]
 WORKLOAD = "synthetic-memory-workload-key-0123456789"
 CALLBACK = "synthetic-memory-callback-key-0123456789"
 UPSTREAM = "synthetic-memory-upstream-key-0123456789"
@@ -190,7 +190,7 @@ class HindsightHttpTests(unittest.TestCase):
                                    text=True, timeout=10)
             self.assertEqual(check.returncode, 0, check.stderr)
             process = subprocess.Popen([BINARY, str(path)], stdout=log, stderr=log,
-                                       env={**os.environ, "RUST_LOG": "slotline=info"})
+                                       env={**os.environ, "RUST_LOG": "soulsteads_router=info"})
             for _ in range(150):
                 self.assertIsNone(process.poll(), log_path.read_text())
                 status = subprocess.run([BINARY, "status", str(path), "--json"],

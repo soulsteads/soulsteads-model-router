@@ -104,12 +104,12 @@ def main():
     backend = ThreadingHTTPServer(('127.0.0.1', 0), Backend)
     backend.daemon_threads = True
     threading.Thread(target=backend.serve_forever, daemon=True).start()
-    host = os.environ.get('SLOTLINE_TEST_HOST', '100.127.255.254')
+    host = os.environ.get('SOULSTEADS_ROUTER_TEST_HOST', '100.127.255.254')
     with socket.socket() as probe:
         probe.bind((host, 0))
         port = probe.getsockname()[1]
     rows = []
-    with tempfile.TemporaryDirectory(prefix='slotline-independent-progress-') as td:
+    with tempfile.TemporaryDirectory(prefix='soulsteads-router-independent-progress-') as td:
         root = pathlib.Path(td)
         key = root / 'key'
         key.write_text(secrets.token_urlsafe(32))

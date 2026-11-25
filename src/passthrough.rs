@@ -32,7 +32,7 @@ fn transport_headers(headers: &HeaderMap) -> HeaderMap {
         .filter(|(name, _)| {
             let name = name.as_str();
             !blocked.contains(name)
-                && !name.starts_with("x-slotline-routing-")
+                && !name.starts_with("x-soulsteads-router-routing-")
                 && !name.contains("api-key")
                 && !name.contains("apikey")
                 && !name.contains("token")
@@ -316,9 +316,9 @@ mod tests {
     fn routing_provenance_cannot_transit_passthrough_headers() {
         let mut headers = HeaderMap::new();
         for name in [
-            "x-slotline-routing-mode",
-            "x-slotline-routing-policy-sha256",
-            "x-slotline-routing-unknown",
+            "x-soulsteads-router-routing-mode",
+            "x-soulsteads-router-routing-policy-sha256",
+            "x-soulsteads-router-routing-unknown",
         ] {
             headers.insert(name, HeaderValue::from_static("spoofed"));
         }

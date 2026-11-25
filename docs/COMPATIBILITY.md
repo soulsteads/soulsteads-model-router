@@ -23,7 +23,7 @@ This page describes **managed routing**. Opt-in
 
 These are current implementation constraints, not requirements to replace your
 existing gateway or change your network. Models run in separately managed
-inference servers; Slotline does not load/unload models or control their KV cache.
+inference servers; Soulsteads Router does not load/unload models or control their KV cache.
 
 ## HTTP endpoints
 
@@ -89,7 +89,7 @@ Only Chat Completions on explicitly image-capable routes accepts images:
 - at most four images per request and 1 MiB decoded per image;
 - 16,384 context tokens reserved per image.
 
-Remote image URLs are rejected to prevent backend fetches. Slotline preserves
+Remote image URLs are rejected to prevent backend fetches. Soulsteads Router preserves
 accepted content parts and never falls back from an image request to a text-only
 route. Verify image behavior on each exact backend before declaring it capable.
 
@@ -133,7 +133,7 @@ versions and failures; supported schema does not imply native-client compatibili
 
 ## Validate your deployment
 
-Start with the text-only [example policy](../config/slotline.example.yaml) and
+Start with the text-only [example policy](../config/soulsteads-router.example.yaml) and
 [setup guide](SETUP.md). Add capabilities only after testing the exact request
 shapes your clients use, including streaming, tools, schema handling, deadlines,
 and cancellation. Do not silently move unrelated cloud-provider traffic or

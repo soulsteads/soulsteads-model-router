@@ -607,7 +607,7 @@ pub(super) async fn metrics(State(runtime): State<Arc<Runtime>>, headers: Header
     let total: u64 = attempts.iter().sum();
     let recent_total: u64 = recent.iter().sum();
     let mut lines = format!(
-        "slotline_requests_total {}\nslotline_rejects_total {}\nslotline_upstream_errors_total {}\nslotline_affinity_leases {}\nslotline_affinity_hits_total {}\nslotline_affinity_rebinds_total {}\nslotline_affinity_expired_total {}\n",
+        "soulsteads_router_requests_total {}\nsoulsteads_router_rejects_total {}\nsoulsteads_router_upstream_errors_total {}\nsoulsteads_router_affinity_leases {}\nsoulsteads_router_affinity_hits_total {}\nsoulsteads_router_affinity_rebinds_total {}\nsoulsteads_router_affinity_expired_total {}\n",
         runtime.requests.load(Ordering::Relaxed),
         runtime.rejects.load(Ordering::Relaxed),
         runtime.upstream_errors.load(Ordering::Relaxed),
@@ -622,17 +622,17 @@ pub(super) async fn metrics(State(runtime): State<Arc<Runtime>>, headers: Header
         let obs = &observations[idx];
         let cap = route.config.safe_concurrency;
         let free = runtime.semaphores[idx].available_permits();
-        lines.push_str(&format!("slotline_route_active{{route=\"{name}\"}} {}\nslotline_route_capacity{{route=\"{name}\"}} {cap}\nslotline_route_free{{route=\"{name}\"}} {free}\nslotline_route_state{{route=\"{name}\",state=\"{}\"}} 1\nslotline_route_model_present{{route=\"{name}\"}} {}\n",cap-free,effective_route_status(&runtime,idx,&observations).name(),u8::from(obs.model_present)));
-        lines.push_str(&format!("slotline_route_attempts_total{{route=\"{name}\"}} {}\nslotline_route_completions_total{{route=\"{name}\"}} {}\nslotline_route_failure_events_total{{route=\"{name}\"}} {}\nslotline_route_traffic_percent{{route=\"{name}\",window=\"total\"}} {:.4}\nslotline_route_traffic_percent{{route=\"{name}\",window=\"5m\"}} {:.4}\n",attempts[idx],runtime.route_completions[idx].load(Ordering::Relaxed),runtime.route_failure_events[idx].load(Ordering::Relaxed),percent(attempts[idx],total),percent(recent[idx],recent_total)));
+        lines.push_str(&format!("soulsteads_router_route_active{{route=\"{name}\"}} {}\nsoulsteads_router_route_capacity{{route=\"{name}\"}} {cap}\nsoulsteads_router_route_free{{route=\"{name}\"}} {free}\nsoulsteads_router_route_state{{route=\"{name}\",state=\"{}\"}} 1\nsoulsteads_router_route_model_present{{route=\"{name}\"}} {}\n",cap-free,effective_route_status(&runtime,idx,&observations).name(),u8::from(obs.model_present)));
+        lines.push_str(&format!("soulsteads_router_route_attempts_total{{route=\"{name}\"}} {}\nsoulsteads_router_route_completions_total{{route=\"{name}\"}} {}\nsoulsteads_router_route_failure_events_total{{route=\"{name}\"}} {}\nsoulsteads_router_route_traffic_percent{{route=\"{name}\",window=\"total\"}} {:.4}\nsoulsteads_router_route_traffic_percent{{route=\"{name}\",window=\"5m\"}} {:.4}\n",attempts[idx],runtime.route_completions[idx].load(Ordering::Relaxed),runtime.route_failure_events[idx].load(Ordering::Relaxed),percent(attempts[idx],total),percent(recent[idx],recent_total)));
         if let Some(at) = obs.checked {
             lines.push_str(&format!(
-                "slotline_route_last_checked_age_seconds{{route=\"{name}\"}} {}\n",
+                "soulsteads_router_route_last_checked_age_seconds{{route=\"{name}\"}} {}\n",
                 at.elapsed().as_secs()
             ));
         }
         if let Some(at) = obs.qualified {
             lines.push_str(&format!(
-                "slotline_route_last_qualified_age_seconds{{route=\"{name}\"}} {}\n",
+                "soulsteads_router_route_last_qualified_age_seconds{{route=\"{name}\"}} {}\n",
                 at.elapsed().as_secs()
             ));
         }
@@ -641,7 +641,7 @@ pub(super) async fn metrics(State(runtime): State<Arc<Runtime>>, headers: Header
         // The backend gauges below are not admission or routing inputs.
         let name = &runtime.policy.routes[*idx].config.name;
         lines.push_str(&format!(
-            "slotline_route_skips_total{{route=\"{name}\",reason=\"{reason}\"}} {count}\n"
+            "soulsteads_router_route_skips_total{{route=\"{name}\",reason=\"{reason}\"}} {count}\n"
         ));
     }
     let telemetry = runtime.backend_telemetry.lock().unwrap();
@@ -652,11 +652,11 @@ pub(super) async fn metrics(State(runtime): State<Arc<Runtime>>, headers: Header
             Duration::from_secs(runtime.policy.config.refresh_seconds.saturating_mul(3)),
         );
         lines.push_str(&format!(
-            "slotline_backend_metrics_available{{route=\"{name}\"}} {}\n",
+            "soulsteads_router_backend_metrics_available{{route=\"{name}\"}} {}\n",
             u8::from(m["status"] == "available")
         ));
         lines.push_str(&format!(
-            "slotline_backend_acceptance_supported{{route=\"{name}\"}} {}\n",
+            "soulsteads_router_backend_acceptance_supported{{route=\"{name}\"}} {}\n",
             u8::from(m["acceptance_supported"] == true)
         ));
         for (field, metric) in [
@@ -684,7 +684,7 @@ pub(super) async fn metrics(State(runtime): State<Arc<Runtime>>, headers: Header
         ] {
             if let Some(value) = m[field].as_f64() {
                 lines.push_str(&format!(
-                    "slotline_backend_{metric}{{route=\"{name}\"}} {value}\n"
+                    "soulsteads_router_backend_{metric}{{route=\"{name}\"}} {value}\n"
                 ));
             }
         }

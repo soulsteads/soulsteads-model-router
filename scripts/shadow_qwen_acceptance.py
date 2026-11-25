@@ -111,7 +111,7 @@ def main():
             cases.append((label, False, str(exc)[:180]))
         except (ValueError, TypeError, KeyError, IndexError):
             cases.append((label, False, "invalid response contract"))
-    run("normal", lambda: _require_text(request("normal", [{"role": "user", "content": "Reply with exactly: SLOTLINE_OK"}]), "SLOTLINE_OK"))
+    run("normal", lambda: _require_text(request("normal", [{"role": "user", "content": "Reply with exactly: SOULSTEADS_ROUTER_OK"}]), "SOULSTEADS_ROUTER_OK"))
     def tool_case():
         result = request("tool", [{"role": "user", "content": "Call the weather function for Oslo."}], tools=[{"type":"function","function":{"name":"weather","description":"Get weather","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}], tool_choice="required")
         if not result.tool_calls or result.tool_calls[0].get("function", {}).get("name") != "weather":

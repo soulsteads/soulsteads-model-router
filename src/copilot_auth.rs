@@ -87,7 +87,7 @@ fn managed_path(config: &CopilotConfig) -> Result<PathBuf, &'static str> {
     let home = std::env::var_os("HOME").ok_or("Copilot managed auth path is unavailable")?;
     Ok(PathBuf::from(home)
         .join(".config")
-        .join("slotline")
+        .join("soulsteads-router")
         .join("copilot-auth.json"))
 }
 
@@ -408,10 +408,10 @@ fn auth_present(config: &CopilotConfig) -> bool {
 
 pub(crate) async fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
     let [command, config_path] = args else {
-        return Err("usage: slotline copilot login|status|logout CONFIG.yaml".into());
+        return Err("usage: soulsteads-router copilot login|status|logout CONFIG.yaml".into());
     };
     if !matches!(command.as_str(), "login" | "status" | "logout") {
-        return Err("usage: slotline copilot login|status|logout CONFIG.yaml".into());
+        return Err("usage: soulsteads-router copilot login|status|logout CONFIG.yaml".into());
     }
     let bytes = std::fs::read(config_path)?;
     let config: Config = serde_yaml::from_slice(&bytes)?;

@@ -80,7 +80,7 @@ Paste this into an agent that can work in the repository checkout:
 ```text
 Set up Soulsteads Model Router from this repository.
 
-1. Read README.md, docs/SETUP.md, and config/slotline.example.yaml.
+1. Read README.md, docs/SETUP.md, and config/soulsteads-router.example.yaml.
 2. Check the prerequisites. Ask which existing local inference server to use.
 3. Build with Cargo.lock. Use the backend's exact model ID and tested
    context/concurrency limits. Declare only capabilities we have verified.
@@ -96,7 +96,7 @@ Set up Soulsteads Model Router from this repository.
 
 Follow the **[setup guide](docs/SETUP.md)** to build, prepare private credentials,
 configure a backend, and make your first request. The
-[example policy](config/slotline.example.yaml) starts with one enabled text route;
+[example policy](config/soulsteads-router.example.yaml) starts with one enabled text route;
 it needs your actual bind address, key path, model ID, and verified limits.
 No model server or prebuilt binary is bundled.
 

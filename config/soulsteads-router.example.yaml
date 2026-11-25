@@ -56,7 +56,7 @@ aliases:
 # hindsight:
 #   enabled: true
 #   endpoint: http://127.0.0.1:9180
-#   api_key_env: SLOTLINE_HINDSIGHT_API_KEY
+#   api_key_env: SOULSTEADS_ROUTER_HINDSIGHT_API_KEY
 #   timeout_ms: 10000
 #   bindings:
 #     example-operator:

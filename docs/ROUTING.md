@@ -326,20 +326,20 @@ and text authority. See [request audit](request-audit.md) for its wider scope.
 
 Responses selected by a virtual policy carry these server-owned headers:
 
-- `x-slotline-routing-policy-sha256`: SHA-256 of canonical JSON containing
+- `x-soulsteads-router-routing-policy-sha256`: SHA-256 of canonical JSON containing
   schema 1, the virtual alias and its complete ordered policy descriptor (mode,
   version, rules/conditions/targets, default, decision model/targets/timeout and
   SHA-256 of operator guidance).
-- `x-slotline-routing-config-sha256` and `x-slotline-routing-generation`: the
+- `x-soulsteads-router-routing-config-sha256` and `x-soulsteads-router-routing-generation`: the
   request's effective existing audit policy identity and runtime generation.
-- `x-slotline-routing-mode`, `x-slotline-routing-reason`, and optional
-  `x-slotline-routing-version`.
-- Optional `x-slotline-routing-rule-sha256` hashes the matched rule ID;
-  `x-slotline-routing-advisory-sha256` hashes independently permitted shadow advice.
+- `x-soulsteads-router-routing-mode`, `x-soulsteads-router-routing-reason`, and optional
+  `x-soulsteads-router-routing-version`.
+- Optional `x-soulsteads-router-routing-rule-sha256` hashes the matched rule ID;
+  `x-soulsteads-router-routing-advisory-sha256` hashes independently permitted shadow advice.
 
 Raw rule IDs are never put in headers, so existing Unicode IDs remain accepted.
 Values are bounded ASCII labels, decimal generations or hexadecimal hashes.
-Upstream `x-slotline-routing-*` values cannot supply this provenance on virtual,
+Upstream `x-soulsteads-router-routing-*` values cannot supply this provenance on virtual,
 ordinary managed, native provider or passthrough routes. Denied advice is absent.
 The per-policy hash excludes concrete route/alias configuration and grants; the
 wider config hash includes its documented projection. Neither identifies live
@@ -423,8 +423,8 @@ contract agreement; they do not generate answers or score answer quality.
 
 Compiled acceptance fixtures are `tests/routing_offline_cli.py` (including
 positive SIGSYS and strace socket controls) and `tests/routing_http_acceptance.py`.
-They require an explicit `SLOTLINE_TEST_BINARY`; HTTP also requires the assigned
-`SLOTLINE_TEST_HOST`. Supply `--manifest` and a private `TMPDIR`. Restricted socket,
+They require an explicit `SOULSTEADS_ROUTER_TEST_BINARY`; HTTP also requires the assigned
+`SOULSTEADS_ROUTER_TEST_HOST`. Supply `--manifest` and a private `TMPDIR`. Restricted socket,
 seccomp or ptrace environments produce blocked evidence, never runtime passes.
 
 ## Choosing cloud versus local: recommended qualification

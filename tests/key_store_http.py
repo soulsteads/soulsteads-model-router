@@ -12,8 +12,8 @@ import subprocess
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-BIN = Path(os.environ.get("SLOTLINE_TEST_BINARY", str(ROOT / "target/release/soulsteads-router")))
-HOST = os.environ.get("SLOTLINE_TEST_HOST", "100.127.255.254")
+BIN = Path(os.environ.get("SOULSTEADS_ROUTER_TEST_BINARY", str(ROOT / "target/release/soulsteads-router")))
+HOST = os.environ.get("SOULSTEADS_ROUTER_TEST_HOST", "100.127.255.254")
 PORT = 4013
 
 
@@ -114,7 +114,7 @@ def main():
             shared = root / "shared"
             shared.mkdir(mode=0o775)
             store = private / "keys.sqlite3"
-            config = shared / "slotline.yaml"
+            config = shared / "soulsteads-router.yaml"
             first_policy = root / "first-policy.json"
             second_policy = root / "second-policy.json"
             policy(first_policy, "first-client")

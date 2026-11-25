@@ -4,7 +4,7 @@
 
 Start with the [project README](../README.md) for the overview. The public guides
 below describe the current source contract, not the state of a particular
-installation. The gateway package remains `slotline` and ships the
+installation. The gateway package remains `soulsteads-router` and ships the
 `soulsteads-router` executable.
 
 ## First-time users

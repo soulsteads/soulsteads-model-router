@@ -200,7 +200,7 @@ fn assistant_reasoning_content_is_preserved_typed_and_budgeted() {
 
 #[test]
 fn reasoning_history_uses_tokenizer_budget_with_conservative_framing() {
-    let path = match std::env::var("SLOTLINE_TEST_TOKENIZER") {
+    let path = match std::env::var("SOULSTEADS_ROUTER_TEST_TOKENIZER") {
         Ok(path) => path,
         Err(_) => return,
     };
@@ -224,7 +224,7 @@ fn reasoning_history_uses_tokenizer_budget_with_conservative_framing() {
 
 #[test]
 fn large_tool_request_with_reasoning_uses_token_budget_below_context_limit() {
-    let path = match std::env::var("SLOTLINE_TEST_TOKENIZER") {
+    let path = match std::env::var("SOULSTEADS_ROUTER_TEST_TOKENIZER") {
         Ok(path) => path,
         Err(_) => return,
     };
@@ -270,15 +270,15 @@ fn large_tool_request_with_reasoning_uses_token_budget_below_context_limit() {
 #[test]
 fn private_reasoning_budget_diagnostic_when_opted_in() {
     let (Ok(request_path), Ok(tokenizer_path)) = (
-        std::env::var("SLOTLINE_TEST_REQUEST"),
-        std::env::var("SLOTLINE_TEST_TOKENIZER"),
+        std::env::var("SOULSTEADS_ROUTER_TEST_REQUEST"),
+        std::env::var("SOULSTEADS_ROUTER_TEST_TOKENIZER"),
     ) else {
         return;
     };
     let request: Value = serde_json::from_slice(&fs::read(request_path).unwrap()).unwrap();
     let tokenizer = Tokenizer::from_file(tokenizer_path).unwrap();
-    let policy = config::load(std::path::Path::new("config/slotline.local.yaml"))
-        .expect("local Slotline policy");
+    let policy = config::load(std::path::Path::new("config/soulsteads-router.local.yaml"))
+        .expect("local Soulsteads Router policy");
     let model = request["model"].as_str().expect("captured model");
     let alias = policy
         .config
@@ -411,10 +411,10 @@ async fn backend_telemetry_get_collection_preserves_health_and_exposes_status() 
         .await
         .unwrap();
     let text = String::from_utf8(body.to_vec()).unwrap();
-    assert!(text.contains("slotline_backend_acceptance_ratio{route=\"small\"} 0.75"));
-    assert!(
-        text.contains("slotline_backend_reported_generation_tokens_per_second{route=\"small\"} 80")
-    );
+    assert!(text.contains("soulsteads_router_backend_acceptance_ratio{route=\"small\"} 0.75"));
+    assert!(text.contains(
+        "soulsteads_router_backend_reported_generation_tokens_per_second{route=\"small\"} 80"
+    ));
     assert!(
         value["routes"]["small"]["server_metrics"]["generation_tokens_per_second"]
             .as_f64()
@@ -924,9 +924,15 @@ fn profile_identity_ignores_session_values_but_rejects_malformed_header() {
     let runtime = app.current();
     let credential = &runtime.policy.config.credentials[0];
     let mut first = HeaderMap::new();
-    first.insert("x-slotline-session", HeaderValue::from_static("one"));
+    first.insert(
+        "x-soulsteads-router-session",
+        HeaderValue::from_static("one"),
+    );
     let mut second = HeaderMap::new();
-    second.insert("x-slotline-session", HeaderValue::from_static("two"));
+    second.insert(
+        "x-soulsteads-router-session",
+        HeaderValue::from_static("two"),
+    );
     assert_eq!(
         affinity_key(&first, credential, "qwen38").unwrap(),
         affinity_key(&second, credential, "qwen38").unwrap()
@@ -937,7 +943,10 @@ fn profile_identity_ignores_session_values_but_rejects_malformed_header() {
         affinity_key(&first, credential, "qwen38").unwrap(),
         affinity_key(&first, &other_credential, "qwen38").unwrap()
     );
-    second.append("x-slotline-session", HeaderValue::from_static("duplicate"));
+    second.append(
+        "x-soulsteads-router-session",
+        HeaderValue::from_static("duplicate"),
+    );
     assert!(affinity_key(&second, credential, "qwen38").is_err());
 }
 
@@ -1183,7 +1192,7 @@ fn embedding_context_byte_heuristic_checks_each_item_and_route_limit() {
 
 #[test]
 fn qwen_context_counter_matches_live_fixture_counts() {
-    let Ok(path) = std::env::var("SLOTLINE_TEST_TOKENIZER") else {
+    let Ok(path) = std::env::var("SOULSTEADS_ROUTER_TEST_TOKENIZER") else {
         return;
     };
     let tokenizer = Tokenizer::from_file(path).expect("pinned Qwen tokenizer");

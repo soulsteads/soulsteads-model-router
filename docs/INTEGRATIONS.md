@@ -13,7 +13,7 @@ project versions need separate verification.
   resulting absolute file and SHA-256 under the alias's `tokenizer` setting.
 - Headroom is an external optional sidecar, not built or distributed here.
   The example unit fixes its upstream, binds the adapter to loopback, and
-  disables compression. Generate `~/.config/slotline/headroom.sha256` from an
+  disables compression. Generate `~/.config/soulsteads-router/headroom.sha256` from an
   independently verified binary. Do not treat the retained historical digest
   as verification of an arbitrary download. Matching `physical_route` and
   safe concurrency are required so adapter/direct traffic shares admission.

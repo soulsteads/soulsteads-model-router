@@ -2,7 +2,26 @@
 
 Move one local-model workload at a time. Soulsteads Model Router is not a
 universal replacement for an existing OpenAI-compatible gateway. It builds as
-`slotline`; changing a client's base URL alone does not establish compatibility.
+`soulsteads-router`; changing a client's base URL alone does not establish compatibility.
+
+## Upgrade the router name
+
+The executable is already named `soulsteads-router`. This change also renames
+its configuration and telemetry interfaces. Before deploying it:
+
+- Back up the existing policy and provider credential stores. Move or copy
+  them securely to the `soulsteads-router` configuration directory (normally
+  `${XDG_CONFIG_HOME:-$HOME/.config}/soulsteads-router`), preserving ownership and
+  permissions, or keep explicit paths. Check absolute paths in the policy and
+  generated or hand-written units. Validate the new policy path with
+  `soulsteads-router --check-config` before switching services.
+- Update launcher and fixture environment variables to the `SOULSTEADS_ROUTER_`
+  prefix, including `SOULSTEADS_ROUTER_CONFIG` where used. Update custom
+  `RUST_LOG` directives to the `soulsteads_router` target.
+- Update clients that send `X-Soulsteads-Router-Session` and tools that consume
+  `X-Soulsteads-Router-Routing-*` headers or `soulsteads_router_*` metrics.
+  Coordinate both sides of the change: old names are not accepted as aliases.
+  Drain pinned conversations before switching, since a restart clears pins.
 
 ## 1. Inventory the client contract
 

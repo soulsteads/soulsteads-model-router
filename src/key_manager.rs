@@ -590,7 +590,7 @@ pub fn run(args: &[String]) -> Result<()> {
         [command, backup_path, destination] if command == "restore" => {
             restore(Path::new(backup_path), Path::new(destination))
         }
-        _ => Err(invalid("usage: slotline keys {init STORE | issue STORE POLICY.json | rotate STORE ID OVERLAP_SECONDS | revoke-key STORE PREFIX | revoke-credential STORE ID | list STORE | verify STORE < client.key | backup STORE NEW_FILE | restore BACKUP NEW_STORE}").into()),
+        _ => Err(invalid("usage: soulsteads-router keys {init STORE | issue STORE POLICY.json | rotate STORE ID OVERLAP_SECONDS | revoke-key STORE PREFIX | revoke-credential STORE ID | list STORE | verify STORE < client.key | backup STORE NEW_FILE | restore BACKUP NEW_STORE}").into()),
     }
 }
 

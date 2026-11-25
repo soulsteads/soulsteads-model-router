@@ -21,7 +21,7 @@ install -m 0644 third_party/LiteLLM-LICENSE.txt "$RUNNER_TEMP/$bundle/"
 # The router takes a config path, not --help. Validate a disposable fixture without starting it.
 (
   umask 077
-  smoke=$(mktemp -d "$RUNNER_TEMP/slotline-smoke.XXXXXXXX")
+  smoke=$(mktemp -d "$RUNNER_TEMP/soulsteads-router-smoke.XXXXXXXX")
   openssl rand -hex 32 > "$smoke/smoke.key"
   key_path=$(jq -Rn --arg path "$smoke/smoke.key" '$path')
   cat > "$smoke/smoke.yaml" <<YAML

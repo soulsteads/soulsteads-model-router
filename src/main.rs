@@ -243,13 +243,13 @@ fn affinity_key(
     hasher.update(credential.name.as_bytes());
     hasher.update([0]);
     hasher.update(alias.as_bytes());
-    let mut values = headers.get_all("x-slotline-session").iter();
+    let mut values = headers.get_all("x-soulsteads-router-session").iter();
     if let Some(value) = values.next() {
         if values.next().is_some() {
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
                 "invalid_session",
-                "Exactly one X-Slotline-Session value is allowed",
+                "Exactly one X-Soulsteads-Router-Session value is allowed",
             ));
         }
         let bytes = value.as_bytes();
@@ -257,7 +257,7 @@ fn affinity_key(
             return Err(json_error(
                 StatusCode::BAD_REQUEST,
                 "invalid_session",
-                "X-Slotline-Session must be 1..128 printable ASCII bytes",
+                "X-Soulsteads-Router-Session must be 1..128 printable ASCII bytes",
             ));
         }
         // Validate caller-controlled metadata, but do not let it split an
@@ -490,7 +490,7 @@ async fn models(State(runtime): State<Arc<Runtime>>, headers: HeaderMap) -> Resp
             } else {
                 "chat"
             };
-            models.push(json!({"id":name,"object":"model","created":0,"owned_by":"slotline","context_length":alias.context_limit,"model_info":{"mode":mode,"max_input_tokens":alias.context_limit,"max_total_tokens":alias.context_limit}}));
+            models.push(json!({"id":name,"object":"model","created":0,"owned_by":"soulsteads-router","context_length":alias.context_limit,"model_info":{"mode":mode,"max_input_tokens":alias.context_limit,"max_total_tokens":alias.context_limit}}));
         }
     }
     for (name, policy) in &runtime.policy.config.routing_policies {
@@ -549,7 +549,7 @@ async fn models(State(runtime): State<Arc<Runtime>>, headers: HeaderMap) -> Resp
                 policy.rules.iter().any(rule_is_usable) || unmatched_is_usable
             })
         {
-            models.push(json!({"id":name,"object":"model","created":0,"owned_by":"slotline-routing","model_info":{"mode":"routing","routing_mode":policy.mode,"routing_version":policy.version,"routing_policy_sha256":model_routing::policy_hash(&runtime.policy.config,name)}}));
+            models.push(json!({"id":name,"object":"model","created":0,"owned_by":"soulsteads-router-routing","model_info":{"mode":"routing","routing_mode":policy.mode,"routing_version":policy.version,"routing_policy_sha256":model_routing::policy_hash(&runtime.policy.config,name)}}));
         }
     }
     if copilot::eligible(&credential, &runtime.policy.config.copilot) {
@@ -570,7 +570,7 @@ async fn models(State(runtime): State<Arc<Runtime>>, headers: HeaderMap) -> Resp
         }
     }
     if codex::eligible(&credential, &runtime.policy.config.codex) {
-        models.push(json!({"id":runtime.policy.config.codex.alias,"object":"model","created":0,"owned_by":"slotline-codex","model_info":{"mode":"chat"}}));
+        models.push(json!({"id":runtime.policy.config.codex.alias,"object":"model","created":0,"owned_by":"soulsteads-router-codex","model_info":{"mode":"chat"}}));
     }
     models.sort_by(|a, b| a["id"].as_str().cmp(&b["id"].as_str()));
     let mut response = Response::new(Body::from(
@@ -659,7 +659,7 @@ async fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
         .with_writer(audit_sink::Sink::start(std::io::stdout())?)
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "slotline=info".into()),
+                .unwrap_or_else(|_| "soulsteads_router=info".into()),
         )
         .init();
     if args.first().is_some_and(|arg| arg == "codex") {
@@ -678,7 +678,7 @@ async fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
             [flag] if flag == "--json" => (default.as_path(), true),
             [path] => (Path::new(path), false),
             [path, flag] if flag == "--json" => (Path::new(path), true),
-            _ => return Err("usage: slotline status [CONFIG.yaml] [--json]".into()),
+            _ => return Err("usage: soulsteads-router status [CONFIG.yaml] [--json]".into()),
         };
         return status_cli::run(policy, json).await;
     }
@@ -699,23 +699,23 @@ async fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
         if &result != b"ok\n" {
             return Err("policy reload rejected; running generation unchanged".into());
         }
-        println!("slotline policy reloaded");
+        println!("soulsteads-router policy reloaded");
         return Ok(());
     }
     let (check, path) = match args.as_slice() {
         [path] => (false, PathBuf::from(path)),
         [flag, path] if flag == "--check-config" => (true, PathBuf::from(path)),
-        _ => return Err("usage: slotline [--check-config|reload] CONFIG.yaml | status [CONFIG.yaml] [--json] | keys ...".into()),
+        _ => return Err("usage: soulsteads-router [--check-config|reload] CONFIG.yaml | status [CONFIG.yaml] [--json] | keys ...".into()),
     };
     let policy = config::load(&path)?;
     if check {
-        println!("slotline configuration valid");
+        println!("soulsteads-router configuration valid");
         return Ok(());
     }
     let policy_socket_store = policy.config.key_store.clone();
     let app_state = Arc::new(AppState::new(path.clone(), policy)?);
     let runtime = app_state.current();
-    info!(build_source_sha256=audit_identity::BUILD, build_source_revision=env!("SLOTLINE_SOURCE_REVISION"), build_source_state=env!("SLOTLINE_SOURCE_STATE"), policy_sha256=%runtime.policy_digest, policy_generation=runtime.policy_generation, "policy activated");
+    info!(build_source_sha256=audit_identity::BUILD, build_source_revision=env!("SOULSTEADS_ROUTER_SOURCE_REVISION"), build_source_state=env!("SOULSTEADS_ROUTER_SOURCE_STATE"), policy_sha256=%runtime.policy_digest, policy_generation=runtime.policy_generation, "policy activated");
     let address = SocketAddr::new(runtime.policy.config.bind, runtime.policy.config.port);
     let listener = tokio::net::TcpListener::bind(address).await?;
     let mut control_guard = None;
@@ -748,7 +748,7 @@ async fn run(args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
         .layer(axum::extract::DefaultBodyLimit::disable())
         .layer(axum::middleware::from_fn(request_logging::correlate));
     let epoch = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-    info!(bind=%address,start_epoch=epoch,"slotline listening");
+    info!(bind=%address,start_epoch=epoch,"soulsteads-router listening");
     axum::serve(listener, app)
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;

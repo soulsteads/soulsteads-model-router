@@ -1598,9 +1598,12 @@ async fn routing_shadow_serves_baseline_once_without_judge_or_extra_rate_debit()
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    assert_eq!(response.headers()["x-slotline-routing-mode"], "shadow");
     assert_eq!(
-        response.headers()["x-slotline-routing-version"],
+        response.headers()["x-soulsteads-router-routing-mode"],
+        "shadow"
+    );
+    assert_eq!(
+        response.headers()["x-soulsteads-router-routing-version"],
         "synthetic-v1"
     );
     axum::body::to_bytes(response.into_body(), 1024 * 1024)
@@ -1665,7 +1668,7 @@ async fn routing_shadow_denied_advisory_is_absent_and_denied_baseline_never_judg
         assert!(
             response
                 .headers()
-                .get("x-slotline-routing-advisory-sha256")
+                .get("x-soulsteads-router-routing-advisory-sha256")
                 .is_none()
         );
         let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)

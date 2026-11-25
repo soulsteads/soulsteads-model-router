@@ -1,10 +1,10 @@
 # GitHub Copilot (native)
 
-Slotline can send OpenAI-compatible Chat Completions and Responses requests directly to GitHub Copilot. This provider is configured separately from ordinary routes; it does not relax generic route URL policy or depend on LiteLLM.
+Soulsteads Router can send OpenAI-compatible Chat Completions and Responses requests directly to GitHub Copilot. This provider is configured separately from ordinary routes; it does not relax generic route URL policy or depend on LiteLLM.
 
 ## Configuration
 
-Add this provider section to the Slotline configuration:
+Add this provider section to the Soulsteads Router configuration:
 
 ```yaml
 copilot:
@@ -19,7 +19,7 @@ copilot:
       endpoint: responses
 ```
 
-`endpoint` is explicit per model. `chat_completions` routes `/v1/chat/completions` to Copilot `/chat/completions`; `responses` routes `/v1/responses` to Copilot `/responses`. Requests retain stream and tool fields while Slotline replaces the public alias with the configured upstream model name. `/models` lists configured aliases, not an upstream-discovered catalog. Configure only models and endpoint protocols that your account supports.
+`endpoint` is explicit per model. `chat_completions` routes `/v1/chat/completions` to Copilot `/chat/completions`; `responses` routes `/v1/responses` to Copilot `/responses`. Requests retain stream and tool fields while Soulsteads Router replaces the public alias with the configured upstream model name. `/models` lists configured aliases, not an upstream-discovered catalog. Configure only models and endpoint protocols that your account supports.
 
 The caller's credential must include the matching alias, `cloud_allowed: true`, and `allowed_routes: [copilot]`. Alias collisions with ordinary aliases or Codex are rejected. Copilot model aliases do not become generic route aliases.
 
@@ -37,7 +37,7 @@ soulsteads-router copilot status CONFIG.yaml
 soulsteads-router copilot logout CONFIG.yaml
 ```
 
-The authorization code is displayed only for interactive sign-in. Slotline stores the GitHub OAuth access token in its own secure managed file. At inference time, Slotline exchanges that OAuth token for the separate, expiring Copilot session token and discovers the Copilot API endpoint. Session tokens are cached only in memory, refreshed before expiry, and invalidated/retried once after an upstream unauthorized response. Managed writes occur atomically after device authorization completes; no storage lock is held while the user authorizes the device.
+The authorization code is displayed only for interactive sign-in. Soulsteads Router stores the GitHub OAuth access token in its own secure managed file. At inference time, Soulsteads Router exchanges that OAuth token for the separate, expiring Copilot session token and discovers the Copilot API endpoint. Session tokens are cached only in memory, refreshed before expiry, and invalidated/retried once after an upstream unauthorized response. Managed writes occur atomically after device authorization completes; no storage lock is held while the user authorizes the device.
 
 A read-only source can instead be selected explicitly:
 
@@ -52,14 +52,14 @@ copilot:
       endpoint: chat_completions
 ```
 
-The source file contains only a GitHub OAuth token, must pass Slotline's secure-file and trusted-ancestor checks, and is never modified. Do not place the Copilot inference session token in this file. `login` and `logout` are refused for this read-only source.
+The source file contains only a GitHub OAuth token, must pass Soulsteads Router's secure-file and trusted-ancestor checks, and is never modified. Do not place the Copilot inference session token in this file. `login` and `logout` are refused for this read-only source.
 
 ## Protocol and limits
 
 - Requests go directly to the provider's session-discovered HTTPS API host. Only provider-owned `api.*.githubcopilot.com` endpoints are accepted; arbitrary configured destinations, redirects, userinfo, nonstandard ports, and URL suffixes are rejected.
-- GitHub OAuth access tokens and Copilot inference session tokens are distinct. Slotline uses GitHub's documented device-flow client ID and `read:user` scope, then exchanges the OAuth token through the Copilot session endpoint.
+- GitHub OAuth access tokens and Copilot inference session tokens are distinct. Soulsteads Router uses GitHub's documented device-flow client ID and `read:user` scope, then exchanges the OAuth token through the Copilot session endpoint.
 - HTTP Chat Completions and Responses bodies, streaming events, and supported tool fields pass through without Codex-specific protocol rewriting.
 - Responses WebSocket is explicitly unsupported and returns `501 unsupported_endpoint`, even though some Copilot models advertise it. `/v1/messages` is not exposed by this OpenAI-compatible router.
-- Provider errors are redacted to stable Slotline errors; raw upstream bodies and authentication values are not returned.
+- Provider errors are redacted to stable Soulsteads Router errors; raw upstream bodies and authentication values are not returned.
 
 No live model generation is performed by the implementation test suite. Protocol and auth tests use synthetic values and loopback mocks only.

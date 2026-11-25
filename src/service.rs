@@ -48,7 +48,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
             (Some(account), config_home)
         }
     };
-    let config = absolute_clean(&config_home.join("slotline/config.yaml"))?;
+    let config = absolute_clean(&config_home.join("soulsteads-router/config.yaml"))?;
     let unit = unit_text(
         &executable,
         &config,
@@ -386,7 +386,7 @@ mod tests {
     fn generated_units_keep_environment_and_exec_quoting_context_specific() {
         let executable = Path::new("/opt/router $cash%/soulsteads-router");
         let config_home = Path::new("/var/lib/router $cash%");
-        let config = config_home.join("slotline/config.yaml");
+        let config = config_home.join("soulsteads-router/config.yaml");
         let account = Account {
             name: "router".into(),
             home: PathBuf::from("/home/router $cash%"),
@@ -394,7 +394,7 @@ mod tests {
 
         let user = unit_text(executable, &config, Scope::User, None, config_home).unwrap();
         assert!(user.contains("Environment=\"XDG_CONFIG_HOME=/var/lib/router $cash%%\""));
-        assert!(user.contains("ExecStart=\"/opt/router $$cash%%/soulsteads-router\" \"/var/lib/router $$cash%%/slotline/config.yaml\""));
+        assert!(user.contains("ExecStart=\"/opt/router $$cash%%/soulsteads-router\" \"/var/lib/router $$cash%%/soulsteads-router/config.yaml\""));
         assert!(user.contains("RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX"));
         assert!(user.contains("WantedBy=default.target"));
         assert!(!user.contains("ProtectSystem="));
@@ -412,7 +412,7 @@ mod tests {
         .unwrap();
         assert!(system.contains("User=router"));
         assert!(system.contains("Environment=\"HOME=/home/router $cash%%\""));
-        assert!(system.contains("ReadWritePaths=\"/var/lib/router $cash%%/slotline\""));
+        assert!(system.contains("ReadWritePaths=\"/var/lib/router $cash%%/soulsteads-router\""));
         assert!(system.contains("ProtectSystem=strict"));
         assert!(system.contains("ProtectHome=read-only"));
         assert!(system.contains("PrivateTmp=yes"));
